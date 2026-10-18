@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTTPS Diagnostic Workbench</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>HTTPS Diagnostic Workbench</h1>
+    <p class="mode" id="buildInfo">Local processing · connecting…</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="startHeading">
+      <h2 id="startHeading">1. Choose a target</h2>
+      <label for="addr">HTTPS address</label>
+      <input id="addr" type="text" inputmode="url" spellcheck="false"
+             placeholder="https://service.example.test/" autocomplete="off">
+
+      <label for="note">Authorization note (optional)</label>
+      <input id="note" type="text" spellcheck="false"
+             placeholder="who authorized this and why">
+
+      <p class="scope">
+        Test scope: selected host only · no login · no configuration changes.
+        You authorize one bounded target; each test runs only when you ask.
+      </p>
+      <label class="checkbox">
+        <input id="allowPrivate" type="checkbox">
+        This target is on a private or loopback address and I am authorized to test it.
+      </label>
+
+      <div class="actions">
+        <button id="startBtn" type="button">Start investigation</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="stepHeading" id="runSection" hidden>
+      <h2 id="stepHeading">2. Run tests, one at a time</h2>
+      <p id="scopeSummary" class="scope"></p>
+      <div class="actions">
+        <button id="nextBtn" type="button">Run the verified HTTPS test</button>
+        <button id="reportBtn" type="button" class="secondary">Preview report</button>
+        <button id="jsonBtn" type="button" class="secondary">Export JSON</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="resultHeading" id="resultSection" hidden>
+      <h2 id="resultHeading">Observed results</h2>
+      <div id="observations"></div>
+      <h3>Findings</h3>
+      <div id="findings"></div>
+    </section>
+
+    <section aria-labelledby="reportHeading" id="reportSection" hidden>
+      <h2 id="reportHeading">Report</h2>
+      <pre id="reportOut" tabindex="0"></pre>
+    </section>
+
+    <p id="status" role="status" aria-live="polite" class="status"></p>
+  </main>
+
+  <footer>
+    <button id="shutdownBtn" type="button" class="danger">Shut down</button>
+    <span class="fineprint">Results stay on this machine. Network traffic reaches only the approved target and resolver.</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
