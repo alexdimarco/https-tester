@@ -62,9 +62,26 @@ async function loadCapabilities() {
     const caps = await api("GET", "/api/capabilities");
     $("buildInfo").textContent =
       "Local processing · " + caps.app_build + " · clients: " + (caps.clients || []).join(", ");
+    renderClientButtons(caps.adapters || []);
   } catch (e) {
     $("buildInfo").textContent = "Local processing";
   }
+}
+
+function renderClientButtons(adapters) {
+  const box = $("clientActions");
+  box.replaceChildren();
+  adapters.forEach((t) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secondary";
+    btn.dataset.profile = "client:" + t.name;
+    btn.textContent = "Installed " + t.name + (t.available ? "" : " (unavailable)");
+    btn.disabled = !t.available;
+    btn.title = t.version || t.note || "";
+    btn.addEventListener("click", () => runProfile(btn.dataset.profile, btn));
+    box.append(btn);
+  });
 }
 
 async function startRun() {

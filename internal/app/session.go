@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexdimarco/https-tester/internal/assess"
 	"github.com/alexdimarco/https-tester/internal/evidence"
+	"github.com/alexdimarco/https-tester/internal/probe/adapter"
 	"github.com/alexdimarco/https-tester/internal/probe/native"
 	"github.com/alexdimarco/https-tester/internal/report"
 	"github.com/alexdimarco/https-tester/internal/target"
@@ -27,10 +28,12 @@ type Session struct {
 	trust    string
 	timeouts native.Timeouts
 
-	mu       sync.Mutex
-	probeMu  sync.Mutex // serializes outbound probes: one at a time per session
-	runs     map[string]*evidence.LiveRun
-	selfAuth string // the workbench's own listener authority, never a valid target
+	mu        sync.Mutex
+	probeMu   sync.Mutex // serializes outbound probes: one at a time per session
+	runs      map[string]*evidence.LiveRun
+	selfAuth  string // the workbench's own listener authority, never a valid target
+	toolsOnce sync.Once
+	tools     []adapter.Tool
 }
 
 // NewSession creates an empty session with system trust (the Gate A default).
@@ -53,18 +56,46 @@ func (s *Session) SetSelfAuthority(authority string) {
 
 // Capabilities describes the build and which client profiles are available.
 type Capabilities struct {
-	AppBuild  string   `json:"app_build"`
-	Clients   []string `json:"clients"`
-	TrustMode string   `json:"trust_mode"`
+	AppBuild  string         `json:"app_build"`
+	Clients   []string       `json:"clients"`
+	Adapters  []adapter.Tool `json:"adapters"`
+	TrustMode string         `json:"trust_mode"`
 }
 
 // Capabilities reports current build and client availability.
 func (s *Session) Capabilities() Capabilities {
+	tools := s.discoverTools()
+	clients := []string{native.SourceKind}
+	for _, t := range tools {
+		if t.Available {
+			clients = append(clients, t.Name)
+		}
+	}
 	return Capabilities{
 		AppBuild:  s.build,
-		Clients:   []string{native.SourceKind},
+		Clients:   clients,
+		Adapters:  tools,
 		TrustMode: s.trust,
 	}
+}
+
+// discoverTools finds external clients once and caches the result.
+func (s *Session) discoverTools() []adapter.Tool {
+	s.toolsOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		s.tools = adapter.Discover(ctx)
+	})
+	return s.tools
+}
+
+func (s *Session) tool(name string) adapter.Tool {
+	for _, t := range s.discoverTools() {
+		if t.Name == name {
+			return t
+		}
+	}
+	return adapter.Tool{Name: name}
 }
 
 // CreateRunRequest is the operator's authorization to investigate one target.
@@ -152,6 +183,9 @@ func (s *Session) RunProbe(ctx context.Context, runID, profile string) (evidence
 	run, err := s.lookup(runID)
 	if err != nil {
 		return evidence.Run{}, err
+	}
+	if strings.HasPrefix(profile, "client:") {
+		return s.runClientProbe(ctx, run, profile)
 	}
 	spec, err := profileSpec(profile)
 	if err != nil {
@@ -245,6 +279,118 @@ func groupProbe(profile, probeID, groupName string, curve tls.CurveID) probe {
 		min:   tls.VersionTLS13, max: tls.VersionTLS13,
 		curves: []tls.CurveID{curve},
 	}
+}
+
+// clientProbe names an external-client profile and its TLS-version request.
+type clientProbe struct {
+	tool    string
+	version string
+	probeID string
+	label   string
+}
+
+func clientSpec(profile string) (clientProbe, error) {
+	switch profile {
+	case "client:curl":
+		return clientProbe{"curl", "", "CLIENT-CURL", "installed curl (default)"}, nil
+	case "client:curl12":
+		return clientProbe{"curl", "1.2", "CLIENT-CURL-12", "installed curl (TLS 1.2)"}, nil
+	case "client:curl13":
+		return clientProbe{"curl", "1.3", "CLIENT-CURL-13", "installed curl (TLS 1.3)"}, nil
+	case "client:openssl":
+		return clientProbe{"openssl", "", "CLIENT-OPENSSL", "installed openssl (default)"}, nil
+	case "client:openssl12":
+		return clientProbe{"openssl", "1.2", "CLIENT-OPENSSL-12", "installed openssl (TLS 1.2)"}, nil
+	case "client:openssl13":
+		return clientProbe{"openssl", "1.3", "CLIENT-OPENSSL-13", "installed openssl (TLS 1.3)"}, nil
+	default:
+		return clientProbe{}, fmt.Errorf("unknown client profile %q", profile)
+	}
+}
+
+// runClientProbe runs an approved external client (curl/openssl) against the
+// target and records what that real implementation did.
+func (s *Session) runClientProbe(ctx context.Context, run *evidence.LiveRun, profile string) (evidence.Run, error) {
+	cs, err := clientSpec(profile)
+	if err != nil {
+		return evidence.Run{}, err
+	}
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+
+	scope := run.Scope()
+	tool := s.tool(cs.tool)
+	req := adapter.Request{
+		ProbeID: cs.probeID,
+		Host:    scope.Host,
+		Port:    scope.Port,
+		URL:     "https://" + scope.Authority + scope.Path,
+		Profile: cs.label,
+		Version: cs.version,
+		Timeout: 15 * time.Second,
+	}
+	var result *adapter.Result
+	if cs.tool == "curl" {
+		result = adapter.RunCurl(ctx, tool, req)
+	} else {
+		result = adapter.RunOpenSSL(ctx, tool, req)
+	}
+	for i := range result.Observations {
+		if result.Observations[i].ID == "" {
+			result.Observations[i].ID = evidence.NewID("obs")
+		}
+	}
+	for _, o := range result.Observations {
+		run.AddObservation(o)
+	}
+	run.AddClaim(deriveClientClaim(result, scope, cs, tool))
+	return run.Snapshot(), nil
+}
+
+func deriveClientClaim(r *adapter.Result, scope evidence.TargetScope, cs clientProbe, tool adapter.Tool) evidence.Claim {
+	base := evidence.Claim{
+		RuleID:   "gate-c-client",
+		Register: "finding about observed results",
+		Checked:  fmt.Sprintf("Whether the installed %s on this machine completes a request to the endpoint%s.", cs.tool, versionSuffix(cs.version)),
+		Status:   evidence.StatusObserved,
+		Scope:    fmt.Sprintf("the installed %s (%s; backend %s), against %s", cs.tool, orUnknown(tool.Version), orUnknown(tool.Backend), scope.Authority),
+	}
+	for _, o := range r.Observations {
+		base.SupportingObservations = append(base.SupportingObservations, o.ID)
+	}
+	switch {
+	case r.Outcome == evidence.OutcomeUnsupportedByClient:
+		base.Statement = fmt.Sprintf("The installed %s was not available on this machine, so this comparison could not run.", cs.tool)
+		base.NextDiscriminatingCheck = fmt.Sprintf("install %s, or use the Go native and other available clients.", cs.tool)
+	case r.Outcome == evidence.OutcomePass:
+		base.Statement = fmt.Sprintf("The installed %s completed a request to this endpoint for this attempt. This is the actual client on this machine, not automatically equivalent to Go or a browser.", cs.tool)
+		base.NextDiscriminatingCheck = "compare with the Go native result: if Go differs, the difference is client- or profile-specific, not necessarily a server defect."
+		base.UncheckedItems = []string{"the external client's trust store and build may differ from Go's"}
+	default:
+		base.Statement = fmt.Sprintf("The installed %s did NOT complete a request to this endpoint for this attempt.", cs.tool)
+		base.Alternatives = []string{
+			"a client/profile or trust-store difference specific to this client",
+			"a network path or load-balancer difference for this address",
+			"a server-side setting this client's defaults do not accept",
+		}
+		base.UncheckedItems = []string{"the server's effective configuration was not examined"}
+		base.NextDiscriminatingCheck = "compare with the Go native result and the other installed client; a Go success does not disprove this client's failure."
+	}
+	return base
+}
+
+func versionSuffix(v string) string {
+	if v == "" {
+		return ""
+	}
+	return " using TLS " + v
+}
+
+func orUnknown(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "unknown"
+	}
+	return s
 }
 
 // Assess returns the protocol-posture assessment derived from a run's
