@@ -49,25 +49,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A tag with a pre-release suffix (e.g. v0.1.0-rc1) is marked
+          # pre-release; a clean tag (v0.1.0) is an official release.
+          FLAGS=""
+          case "${GITHUB_REF_NAME}" in
+            *-*) FLAGS="--prerelease" ;;
+          esac
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "${GITHUB_REF_NAME}" \
-            --prerelease \
+            $FLAGS \
             --notes "$(cat <<'NOTES'
-          HTTPS Diagnostic Workbench — alpha.
+          HTTPS Diagnostic Workbench.
 
-          Unsigned binaries. They are NOT code-signed for macOS Gatekeeper or
-          Windows SmartScreen, so your OS will warn on first run. Verify what you
-          downloaded instead:
+          Early 0.x release: interfaces and behavior may still change.
 
-          - checksums: see SHA256SUMS (run `shasum -a 256 -c SHA256SUMS`)
-          - build provenance: `gh attestation verify <binary> --repo ${{ github.repository }}`
+          Unsigned binaries — not code-signed for macOS Gatekeeper or Windows
+          SmartScreen, so your OS warns on first run. Verify what you downloaded:
+          - checksums: SHA256SUMS (`shasum -a 256 -c SHA256SUMS`)
+          - build provenance: `gh attestation verify <file> --repo ${{ github.repository }}`
 
-          macOS: remove the quarantine flag with
-          `xattr -d com.apple.quarantine httpsdiag-darwin-*` before running.
+          macOS: download httpsdiag-macos-universal-app.zip, unzip, then
+          right-click the app -> Open (first time only). For the CLI binary:
+          `xattr -d com.apple.quarantine httpsdiag-darwin-*`.
 
-          Run `./httpsdiag-<os>-<arch>` and open the printed localhost URL.
-          Tests run on Linux, macOS, and Windows in CI; manual multi-OS QA and an
-          independent security review of the local API are still pending.
+          Run it and open the printed http://127.0.0.1:<port>/ URL. Tests run on
+          Linux, macOS, and Windows in CI. Still pending: an independent security
+          review of the local API, and manual multi-OS click-testing.
           NOTES
           )"
 

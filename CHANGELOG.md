@@ -1,10 +1,12 @@
 # Changelog
 
-## v0.1.0-alpha — 2026-10-18
+## v0.1.0 — 2026-10-18
 
-First alpha: a local, capability-protected HTTPS diagnostic workbench with a
-working Go probe engine. Binaries are unsigned; the test suite runs on Linux,
-macOS, and Windows in CI.
+First official release (0.x — early; interfaces and behavior may still change).
+A local, capability-protected HTTPS diagnostic workbench with a working Go probe
+engine. All targets, including the macOS `.app`, are built and attested by CI.
+Binaries are unsigned; the test suite runs on Linux, macOS, and Windows in CI.
+Promotes the v0.1.0-alpha preview with the same capabilities.
 
 ### Added
 - Local loopback server: single-use bootstrap token exchanged for a per-launch

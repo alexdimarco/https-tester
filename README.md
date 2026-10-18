@@ -4,11 +4,12 @@ A local-only, cross-platform tool for troubleshooting HTTPS connections — one
 test at a time, with every result labelled by what it does and does **not**
 prove.
 
-> **Status: v0.1.0-alpha.** The Go probe engine works and is tested on Linux,
-> macOS, and Windows in CI. Binaries are **unsigned** (your OS will warn on first
-> run), there is no independent security review of the local API yet, and legacy
-> TLS 1.0/1.1 and cipher-suite enumeration are out of scope for this build. See
-> the [CHANGELOG](CHANGELOG.md) and the full design in
+> **Status: v0.1.0 (early 0.x).** The Go probe engine works and is tested on
+> Linux, macOS, and Windows in CI. As an early 0.x release, interfaces may still
+> change. Binaries are **unsigned** (your OS will warn on first run), there is no
+> independent security review of the local API yet, and legacy TLS 1.0/1.1 and
+> cipher-suite enumeration are out of scope for this build. See the
+> [CHANGELOG](CHANGELOG.md) and the full design in
 > [`docs/HTTPS_Diagnostic_Workbench_Design.md`](docs/HTTPS_Diagnostic_Workbench_Design.md).
 
 ## Quick start
