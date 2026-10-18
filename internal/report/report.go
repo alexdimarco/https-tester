@@ -78,6 +78,12 @@ func Text(run evidence.Run) string {
 			line(&b, "    - %s: %s", g.Name, g.Why)
 		}
 	}
+	if len(a.References) > 0 {
+		line(&b, "  Sources (risk claims checked against these on %s):", a.KnowledgeAsOf)
+		for _, r := range a.References {
+			line(&b, "    - %s — %s", r.Cite, r.URL)
+		}
+	}
 	line(&b, "  %s", a.Disclaimer)
 	line(&b, "")
 

@@ -244,6 +244,23 @@ function renderAssessment(a) {
     d.append(document.createTextNode(g.why || ""));
     gaps.append(d);
   });
+
+  const refs = $("assessRefs");
+  refs.replaceChildren();
+  (a.references || []).forEach((r) => {
+    const d = el("div", "assess-gap");
+    d.append(document.createTextNode(r.topic + " — " + r.cite + " "));
+    if (r.url) {
+      const link = document.createElement("a");
+      link.href = r.url;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      link.textContent = r.url;
+      d.append(link);
+    }
+    refs.append(d);
+  });
+
   $("assessDisclaimer").textContent = a.disclaimer || "";
 }
 

@@ -60,4 +60,13 @@ func TestBuildPostureAndKnowledgeDate(t *testing.T) {
 	if !legacy {
 		t.Error("expected a legacy TLS gap in not-tested")
 	}
+
+	if len(a.References) == 0 {
+		t.Error("expected authoritative references backing the risk claims")
+	}
+	for _, r := range a.References {
+		if r.Cite == "" || r.URL == "" {
+			t.Errorf("reference is missing a citation or URL: %+v", r)
+		}
+	}
 }

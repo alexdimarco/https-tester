@@ -24,19 +24,40 @@ const (
 )
 
 // KnowledgeAsOf is the date the protocol-risk baseline in this file was last
-// reviewed by the author. Security knowledge ages — what is "preferred" or
-// "weak" changes — so judgments here are current only as of this date and must
-// be re-reviewed. It is the author's baseline, not a live feed, and it is not
-// the time the tests ran.
+// reviewed by the author against the authoritative sources in References.
+// Security knowledge ages — what is "preferred" or "weak" changes — so
+// judgments here are current only as of this date and must be re-reviewed. It
+// is the author's baseline, not a live feed, and it is not the time the tests
+// ran.
 const KnowledgeAsOf = "2026-10-18"
+
+// Reference is an authoritative source backing a risk claim. The claims in this
+// file were checked against these on KnowledgeAsOf.
+type Reference struct {
+	Topic string `json:"topic"`
+	Cite  string `json:"cite"`
+	URL   string `json:"url"`
+}
+
+// References are the primary sources the risk notes were verified against.
+var References = []Reference{
+	{Topic: "TLS 1.0 and 1.1 are formally deprecated (weak)", Cite: "IETF RFC 8996 / BCP 195 (Mar 2021)", URL: "https://www.rfc-editor.org/rfc/rfc8996"},
+	{Topic: "TLS 1.3 protocol; ephemeral-only key exchange gives forward secrecy", Cite: "IETF RFC 8446 (Aug 2018)", URL: "https://www.rfc-editor.org/rfc/rfc8446"},
+	{Topic: "TLS 1.2 baseline, TLS 1.3 recommended (US gov guidance)", Cite: "NIST SP 800-52 Rev. 2 (Aug 2019)", URL: "https://doi.org/10.6028/NIST.SP.800-52r2"},
+	{Topic: "ML-KEM post-quantum KEM (ML-KEM-768 parameter set)", Cite: "NIST FIPS 203 (Aug 2024)", URL: "https://doi.org/10.6028/NIST.FIPS.203"},
+	{Topic: "X25519MLKEM768 hybrid key exchange for TLS 1.3", Cite: "IETF draft-ietf-tls-ecdhe-mlkem (Standards Track)", URL: "https://datatracker.ietf.org/doc/draft-ietf-tls-ecdhe-mlkem/"},
+	{Topic: "Certificate revocation status (OCSP)", Cite: "IETF RFC 6960", URL: "https://www.rfc-editor.org/rfc/rfc6960"},
+	{Topic: "Go cannot select TLS 1.3 cipher suites", Cite: "Go crypto/tls Config documentation", URL: "https://pkg.go.dev/crypto/tls#Config"},
+}
 
 // Assessment is the posture summary for one run.
 type Assessment struct {
-	KnowledgeAsOf string     `json:"knowledge_as_of"`
-	Scope         string     `json:"scope"`
-	Properties    []Property `json:"properties"`
-	NotTested     []Gap      `json:"not_tested"`
-	Disclaimer    string     `json:"disclaimer"`
+	KnowledgeAsOf string      `json:"knowledge_as_of"`
+	Scope         string      `json:"scope"`
+	Properties    []Property  `json:"properties"`
+	NotTested     []Gap       `json:"not_tested"`
+	References    []Reference `json:"references"`
+	Disclaimer    string      `json:"disclaimer"`
 }
 
 // Property is one observed protocol fact and its plain-language implication.
@@ -59,7 +80,8 @@ func Build(run evidence.Run) Assessment {
 		KnowledgeAsOf: KnowledgeAsOf,
 		Scope: "Covers only the tests actually run against " + orUnknown(run.TargetScope.Authority) +
 			". “Observed accepted” is evidence a setting is enabled; a rejected single offer is not proof it is disabled; “not tested” is neither.",
-		Disclaimer: "This is not a security grade or a pass/fail verdict for the server. It summarizes what these tests observed for this client against this endpoint. The protocol-risk judgments reflect security knowledge as of " + KnowledgeAsOf + " and should be re-reviewed periodically.",
+		Disclaimer: "This is not a security grade or a pass/fail verdict for the server. It summarizes what these tests observed for this client against this endpoint. The protocol-risk judgments were checked against the listed sources on " + KnowledgeAsOf + " and should be re-reviewed periodically.",
+		References: References,
 	}
 
 	var tls12, tls13 *bool
@@ -179,7 +201,7 @@ func buildProperties(certState string, tls12, tls13 *bool, groups map[string]boo
 	if pq {
 		props = append(props, Property{
 			Name: "Post-quantum readiness", State: "hybrid group observed", Severity: SeverityInfo,
-			Note: "A hybrid post-quantum key exchange (…ML-KEM…) was negotiated, which protects today's traffic against future “harvest-now, decrypt-later” decryption.",
+			Note: "A hybrid post-quantum key exchange (ML-KEM, NIST FIPS 203; hybrid per IETF draft-ietf-tls-ecdhe-mlkem) was negotiated, which protects today's traffic against future “harvest-now, decrypt-later” decryption.",
 		})
 	} else if tls13 != nil && *tls13 {
 		props = append(props, Property{
@@ -193,7 +215,7 @@ func buildProperties(certState string, tls12, tls13 *bool, groups map[string]boo
 
 func buildGaps(tls12, tls13 *bool) []Gap {
 	gaps := []Gap{
-		{Name: "Legacy TLS 1.0 / 1.1", Why: "Not tested by this build. If a server still accepts them they are considered weak and should be disabled; test them separately."},
+		{Name: "Legacy TLS 1.0 / 1.1", Why: "Not tested by this build. They are formally deprecated by IETF RFC 8996 (BCP 195); if a server still accepts them they are considered weak and should be disabled. Test them separately."},
 		{Name: "Individual / weak cipher suites", Why: "TLS 1.3 cipher suites are not selectable in Go, so this build does not enumerate them. Use the planned OpenSSL adapter for cipher-level testing."},
 		{Name: "Certificate revocation (OCSP/CRL)", Why: "Not checked. A revoked but otherwise-valid certificate would still appear to pass here."},
 		{Name: "HSTS, ECH, HTTP/3, and policy/compliance", Why: "Not evaluated by this build."},
