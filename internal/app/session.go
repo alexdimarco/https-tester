@@ -184,6 +184,13 @@ func (s *Session) RunProbe(ctx context.Context, runID, profile string) (evidence
 		Curves:     spec.curves,
 		Profile:    spec.label,
 	})
+	// Assign observation IDs before storing so the derived claim can reference
+	// them (the status badge in the report is computed from this linkage).
+	for i := range result.Observations {
+		if result.Observations[i].ID == "" {
+			result.Observations[i].ID = evidence.NewID("obs")
+		}
+	}
 	for _, o := range result.Observations {
 		run.AddObservation(o)
 	}
@@ -341,6 +348,7 @@ func deriveClaim(r *native.Result, scope evidence.TargetScope, spec probe) evide
 	base := evidence.Claim{
 		RuleID:   "gate-b-" + spec.kind,
 		Register: "finding about observed results",
+		Checked:  checkedText(spec),
 		Status:   evidence.StatusObserved,
 		Scope:    fmt.Sprintf("the Go native client (%s), against %s at %s", spec.label, scope.Authority, strings.Join(scope.SelectedAddresses, ", ")),
 	}
@@ -427,6 +435,17 @@ func certSuffix(o evidence.Observation) string {
 		return " The certificate chains to an authority this client does not trust."
 	default:
 		return ""
+	}
+}
+
+func checkedText(spec probe) string {
+	switch spec.kind {
+	case "version":
+		return fmt.Sprintf("Whether the server completes a connection using %s.", spec.label)
+	case "group":
+		return fmt.Sprintf("Whether the server completes a TLS 1.3 connection when only the %s key-exchange group is offered.", spec.group)
+	default:
+		return "Whether this machine can complete a verified HTTPS request to the endpoint, with the certificate trusted."
 	}
 }
 

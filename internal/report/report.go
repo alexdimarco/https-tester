@@ -1,19 +1,20 @@
 // Package report renders a run into a plain-language text report or a JSON
-// document. Provenance sits beside every observation; nothing is presented as a
-// measurement that was not one. No A–F security grade is produced.
+// document. It leads with what was found, in words a non-specialist can read,
+// and keeps the raw technical detail below. Provenance sits beside every
+// observation; nothing is presented as a measurement that was not one. No A–F
+// security grade is produced.
 package report
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/alexdimarco/https-tester/internal/evidence"
 )
 
-// JSON renders the run as indented JSON.
+// JSON renders the run as indented JSON (the structured, second-layer view).
 func JSON(run evidence.Run) ([]byte, error) {
 	return json.MarshalIndent(run, "", "  ")
 }
@@ -25,115 +26,215 @@ func Text(run evidence.Run) string {
 	line(&b, "HTTPS Diagnostic Workbench — investigation report")
 	line(&b, "%s", strings.Repeat("=", 52))
 	line(&b, "")
-	line(&b, "Run ID:           %s", run.RunID)
-	line(&b, "Worked on (UTC):  %s", run.StartedAtUTC.Format("2006-01-02 15:04:05"))
-	line(&b, "Clock source:     %s", run.ClockSource)
-	line(&b, "Build:            %s", run.AppBuild)
-	line(&b, "Platform:         %s/%s", run.Platform, run.Architecture)
-	line(&b, "Register:         findings about observed results; root causes remain open unless stated")
+	line(&b, "Address worked on:  %s", run.TargetScope.InputURL)
+	line(&b, "Worked on (UTC):    %s", run.StartedAtUTC.Format("2006-01-02 15:04:05"))
+	line(&b, "This machine:       %s/%s, build %s", run.Platform, run.Architecture, run.AppBuild)
+	line(&b, "Trust used:         %s", run.TrustMode)
+	line(&b, "What this is:       findings about what THIS client observed. It does not certify the server.")
 	line(&b, "")
 
-	line(&b, "Scope (what was authorized)")
-	line(&b, "  Address:    %s", run.TargetScope.InputURL)
-	line(&b, "  Authority:  %s", run.TargetScope.Authority)
-	line(&b, "  Addresses:  %s", orNone(strings.Join(run.TargetScope.SelectedAddresses, ", ")))
-	line(&b, "  Trust mode: %s", run.TrustMode)
-	line(&b, "  Authorized: %t (%s)", run.Authorization.OperatorAcknowledged, orNone(run.Authorization.Note))
+	// --- what we found, in plain words ---
+	line(&b, "WHAT WE FOUND")
+	line(&b, "%s", strings.Repeat("-", 52))
+	if len(run.Claims) == 0 {
+		line(&b, "  No tests have been run yet.")
+	}
+	for _, c := range run.Claims {
+		mark := claimMark(run, c)
+		line(&b, "")
+		line(&b, "%s %s", mark, c.Statement)
+		if c.Checked != "" {
+			line(&b, "    We checked:          %s", c.Checked)
+		}
+		for _, a := range c.Alternatives {
+			line(&b, "    It could also be:    %s", a)
+		}
+		for _, u := range c.UncheckedItems {
+			line(&b, "    Not established:     %s", u)
+		}
+		if c.NextDiscriminatingCheck != "" {
+			line(&b, "    Suggested next test: %s", c.NextDiscriminatingCheck)
+		}
+	}
 	line(&b, "")
 
-	line(&b, "Observed results (each line is a recorded observation)")
+	// --- test details (the raw observations, with friendly labels) ---
+	line(&b, "TEST DETAILS")
+	line(&b, "%s", strings.Repeat("-", 52))
 	if len(run.Observations) == 0 {
 		line(&b, "  (none yet)")
 	}
 	for _, o := range run.Observations {
-		line(&b, "  [%s] %s — %s", strings.ToUpper(string(o.Stage)), o.Outcome, provenance(o))
-		for _, kv := range sortedDetail(o) {
-			line(&b, "        %s: %s", kv[0], kv[1])
+		line(&b, "  %-18s %s", stageLabel(o.Stage), plainOutcome(o.Outcome))
+		for _, kv := range friendlyDetail(o) {
+			line(&b, "      %-14s %s", kv[0]+":", kv[1])
+		}
+		if msg := plainError(o.NormalizedError); msg != "" {
+			line(&b, "      reason:        %s", msg)
 		}
 		if o.RawErrorRedacted != "" {
-			line(&b, "        error: %s", o.RawErrorRedacted)
+			line(&b, "      technical:     %s", o.RawErrorRedacted)
 		}
 		for _, u := range o.RemainingUnknowns {
-			line(&b, "        not checked: %s", u)
+			line(&b, "      not checked:   %s", u)
 		}
 	}
 	line(&b, "")
 
-	line(&b, "Findings")
-	if len(run.Claims) == 0 {
-		line(&b, "  (none yet)")
-	}
-	for _, c := range run.Claims {
-		line(&b, "  • %s", c.Statement)
-		line(&b, "      register:   %s / %s", c.Register, c.Status)
-		line(&b, "      scope:      %s", c.Scope)
-		for _, a := range c.Alternatives {
-			line(&b, "      alternative: %s", a)
-		}
-		for _, u := range c.UncheckedItems {
-			line(&b, "      not checked: %s", u)
-		}
-		line(&b, "      next check: %s", c.NextDiscriminatingCheck)
-	}
+	line(&b, "SHARING")
+	line(&b, "%s", strings.Repeat("-", 52))
+	line(&b, "  Credential headers (Authorization, Cookie, …) are removed before storage.")
+	line(&b, "  Token-like URL values and userinfo are masked. Review before sharing widely.")
 	line(&b, "")
 
-	line(&b, "Redaction and sharing")
-	line(&b, "  Credential-bearing headers (Authorization, Cookie, …) are removed before storage.")
-	line(&b, "  Token-like URL query values and userinfo are masked. Review before sharing widely.")
-	line(&b, "")
-
-	line(&b, "Method counters (software-recorded unless marked self-report)")
-	line(&b, "  Observations recorded: %d", len(run.Observations))
-	line(&b, "  Claims recorded:       %d", len(run.Claims))
-	line(&b, "  Consent events:        %d", len(run.ConsentEvents))
-	line(&b, "  Schema/rule versions:  %s / %s", run.SchemaVersion, orNone(run.RuleCatalogVersion))
-	line(&b, "  Self-report: this tool does not certify the remote server, only what this client observed.")
+	line(&b, "COUNTERS (software-recorded)")
+	line(&b, "  Tests run: %d    Observations: %d    Consent events: %d",
+		len(run.Claims), len(run.Observations), len(run.ConsentEvents))
+	line(&b, "  This tool reports what this client observed; it does not certify the remote server.")
 
 	return b.String()
 }
 
-func provenance(o evidence.Observation) string {
-	parts := []string{fmt.Sprintf("source=%s", o.SourceKind)}
-	if o.DurationMS > 0 {
-		parts = append(parts, fmt.Sprintf("%dms", o.DurationMS))
+// claimMark is a plain status marker derived from the claim's supporting
+// observations: did the connection reach a verified HTTP response?
+func claimMark(run evidence.Run, c evidence.Claim) string {
+	ids := map[string]bool{}
+	for _, id := range c.SupportingObservations {
+		ids[id] = true
 	}
-	return strings.Join(parts, " ")
+	httpPass, anyFail := false, false
+	for _, o := range run.Observations {
+		if !ids[o.ID] {
+			continue
+		}
+		if o.Stage == evidence.StageHTTP && o.Outcome == evidence.OutcomePass {
+			httpPass = true
+		}
+		if o.Outcome == evidence.OutcomeFail || o.Outcome == evidence.OutcomeInconclusive {
+			anyFail = true
+		}
+	}
+	switch {
+	case httpPass:
+		return "[ worked ]  "
+	case anyFail:
+		return "[ failed ]  "
+	default:
+		return "[ note ]    "
+	}
 }
 
-func sortedDetail(o evidence.Observation) [][2]string {
+func friendlyDetail(o evidence.Observation) [][2]string {
 	var out [][2]string
 	add := func(k, v string) {
 		if v != "" {
 			out = append(out, [2]string{k, v})
 		}
 	}
-	add("version", o.NegotiatedVersion)
+	add("TLS version", o.NegotiatedVersion)
+	add("key exchange", friendlyGroup(o.Group))
 	add("cipher", o.CipherSuite)
-	add("group", o.Group)
-	add("alpn", o.ApplicationProtocol)
-	add("verification", o.VerificationStatus)
+	if o.ApplicationProtocol != "" && o.ApplicationProtocol != "none" {
+		add("protocol", o.ApplicationProtocol)
+	}
+	add("certificate", o.VerificationStatus)
 	if o.HTTPStatus != 0 {
-		add("http_status", fmt.Sprintf("%d", o.HTTPStatus))
+		add("HTTP status", fmt.Sprintf("%d", o.HTTPStatus))
 	}
-	keys := make([]string, 0, len(o.Detail))
-	for k := range o.Detail {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		add(k, o.Detail[k])
+	// A few helpful raw-detail keys, in a stable order.
+	for _, k := range []string{"requested_profile", "resolved_addresses", "dial_address", "subject", "not_after"} {
+		if v, ok := o.Detail[k]; ok {
+			add(k, v)
+		}
 	}
 	return out
+}
+
+func stageLabel(s evidence.Stage) string {
+	switch s {
+	case evidence.StageInput:
+		return "Address check"
+	case evidence.StageDNS:
+		return "DNS lookup"
+	case evidence.StageTCP:
+		return "TCP connection"
+	case evidence.StageTLS:
+		return "TLS handshake"
+	case evidence.StageCertificate:
+		return "Certificate check"
+	case evidence.StageHTTP:
+		return "HTTP response"
+	default:
+		return string(s)
+	}
+}
+
+func plainOutcome(o evidence.Outcome) string {
+	switch o {
+	case evidence.OutcomePass:
+		return "worked"
+	case evidence.OutcomeFail:
+		return "failed"
+	case evidence.OutcomeInconclusive:
+		return "couldn't tell"
+	case evidence.OutcomeNotTested:
+		return "not tested"
+	case evidence.OutcomeUnsupportedByClient:
+		return "this client can't do it"
+	case evidence.OutcomeCancelled:
+		return "cancelled"
+	case evidence.OutcomeInternalError:
+		return "tool error"
+	default:
+		return string(o)
+	}
+}
+
+func friendlyGroup(g string) string {
+	switch g {
+	case "CurveP256":
+		return "P-256"
+	case "CurveP384":
+		return "P-384"
+	case "CurveP521":
+		return "P-521"
+	case "X25519MLKEM768":
+		return "X25519 + ML-KEM-768 (hybrid post-quantum)"
+	case "SecP256r1MLKEM768":
+		return "P-256 + ML-KEM-768 (hybrid post-quantum)"
+	case "none_or_legacy_rsa_key_exchange":
+		return "none (legacy RSA key exchange)"
+	case "", "unknown":
+		return ""
+	default:
+		return g
+	}
+}
+
+func plainError(normalized string) string {
+	switch normalized {
+	case "certificate_invalid":
+		return "the certificate is expired or not yet valid"
+	case "certificate_hostname_mismatch":
+		return "the certificate does not cover the address requested"
+	case "certificate_unknown_authority":
+		return "the certificate's issuer is not trusted by this machine"
+	case "timeout":
+		return "the server did not respond in time"
+	case "tls_handshake_failure":
+		return "the TLS handshake was refused (for a single-group test, the server most likely does not accept that group)"
+	case "tls_version_not_supported":
+		return "the server does not support that TLS version"
+	case "connection_refused":
+		return "the connection was refused"
+	case "network_unreachable":
+		return "the network path was unreachable"
+	default:
+		return ""
+	}
 }
 
 func line(b *bytes.Buffer, format string, args ...any) {
 	fmt.Fprintf(b, format, args...)
 	b.WriteByte('\n')
-}
-
-func orNone(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "(none)"
-	}
-	return s
 }

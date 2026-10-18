@@ -108,54 +108,105 @@ async function runProfile(profile, btn) {
   }
 }
 
+// ---- plain-language maps (mirror the Go report) ----
+const STAGE_LABEL = {
+  input: "Address check", dns: "DNS lookup", tcp: "TCP connection",
+  tls: "TLS handshake", certificate: "Certificate check", http: "HTTP response",
+};
+const OUTCOME_WORD = {
+  pass: "worked", fail: "failed", inconclusive: "couldn't tell",
+  not_tested: "not tested", unsupported_by_client: "this client can't do it",
+  cancelled: "cancelled", internal_tool_error: "tool error",
+};
+const GROUP_NAME = {
+  CurveP256: "P-256", CurveP384: "P-384", CurveP521: "P-521",
+  X25519MLKEM768: "X25519 + ML-KEM-768 (hybrid post-quantum)",
+  SecP256r1MLKEM768: "P-256 + ML-KEM-768 (hybrid post-quantum)",
+  none_or_legacy_rsa_key_exchange: "none (legacy RSA key exchange)",
+};
+const ERROR_PLAIN = {
+  certificate_invalid: "the certificate is expired or not yet valid",
+  certificate_hostname_mismatch: "the certificate does not cover the address requested",
+  certificate_unknown_authority: "the certificate's issuer is not trusted by this machine",
+  timeout: "the server did not respond in time",
+  tls_handshake_failure: "the TLS handshake was refused (for a single-group test, the server most likely does not accept that group)",
+  tls_version_not_supported: "the server does not support that TLS version",
+  connection_refused: "the connection was refused",
+  network_unreachable: "the network path was unreachable",
+};
+const friendlyGroup = (g) => GROUP_NAME[g] || (g === "unknown" ? "" : g || "");
+
 function renderRun(run) {
+  const findBox = $("findings");
+  findBox.replaceChildren();
+  const claims = run.claims || [];
+  if (!claims.length) {
+    findBox.append(el("p", "scope", "No tests have been run yet. Pick a test above."));
+  }
+  claims.forEach((c) => findBox.appendChild(renderClaim(c, run)));
+
   const obsBox = $("observations");
   obsBox.replaceChildren();
   (run.observations || []).forEach((o) => obsBox.appendChild(renderObservation(o)));
-  const findBox = $("findings");
-  findBox.replaceChildren();
-  (run.claims || []).forEach((c) => findBox.appendChild(renderClaim(c)));
+}
+
+function claimStatus(c, run) {
+  const ids = new Set(c.supporting_observations || []);
+  let httpPass = false, anyFail = false;
+  (run.observations || []).forEach((o) => {
+    if (!ids.has(o.id)) return;
+    if (o.stage === "http" && o.outcome === "pass") httpPass = true;
+    if (o.outcome === "fail" || o.outcome === "inconclusive") anyFail = true;
+  });
+  if (httpPass) return { word: "Worked", cls: "pass" };
+  if (anyFail) return { word: "Failed", cls: "fail" };
+  return { word: "Note", cls: "note" };
+}
+
+function renderClaim(c, run) {
+  const box = el("div", "finding");
+  const st = claimStatus(c, run);
+  const head = el("div", "finding-head");
+  head.append(el("span", "badge " + st.cls, st.word));
+  head.append(el("span", "statement", c.statement || ""));
+  box.append(head);
+
+  const dl = document.createElement("dl");
+  const rows = [];
+  if (c.checked) rows.push(["We checked", c.checked]);
+  (c.alternatives || []).forEach((a) => rows.push(["Could also be", a]));
+  (c.unchecked_items || []).forEach((u) => rows.push(["Not established", u]));
+  if (c.next_discriminating_check) rows.push(["Suggested next test", c.next_discriminating_check]);
+  rows.forEach(([k, v]) => dl.append(elDT(k), elDD(v)));
+  if (dl.childNodes.length) box.append(dl);
+  return box;
 }
 
 function renderObservation(o) {
   const box = el("div", "obs");
   const head = el("div");
-  const stage = el("span", "stage", String(o.stage || "").toUpperCase() + "  ");
-  const outcome = el("span", "outcome " + (o.outcome || ""), o.outcome || "");
-  head.append(stage, outcome);
+  head.append(el("span", "stage", (STAGE_LABEL[o.stage] || o.stage || "") + "  "));
+  head.append(el("span", "outcome " + (o.outcome || ""), OUTCOME_WORD[o.outcome] || o.outcome || ""));
   box.append(head);
 
   const dl = document.createElement("dl");
   const pairs = [
-    ["version", o.negotiated_version],
+    ["TLS version", o.negotiated_version],
+    ["key exchange", friendlyGroup(o.group)],
     ["cipher", o.cipher_suite],
-    ["group", o.group],
-    ["alpn", o.application_protocol],
-    ["verification", o.verification_status],
-    ["http status", o.http_status ? String(o.http_status) : ""],
-    ["error", o.raw_error_redacted],
+    ["protocol", o.application_protocol && o.application_protocol !== "none" ? o.application_protocol : ""],
+    ["certificate", o.verification_status],
+    ["HTTP status", o.http_status ? String(o.http_status) : ""],
+    ["reason", ERROR_PLAIN[o.normalized_error] || ""],
+    ["technical", o.raw_error_redacted],
   ];
-  if (o.detail) {
-    Object.keys(o.detail).sort().forEach((k) => pairs.push([k, o.detail[k]]));
-  }
+  if (o.detail && o.detail.requested_profile) pairs.push(["tested profile", o.detail.requested_profile]);
   (o.remaining_unknowns || []).forEach((u) => pairs.push(["not checked", u]));
   pairs.forEach(([k, v]) => {
     if (!v) return;
     dl.append(elDT(k), elDD(v));
   });
   if (dl.childNodes.length) box.append(dl);
-  return box;
-}
-
-function renderClaim(c) {
-  const box = el("div", "finding");
-  box.append(el("div", "", c.statement || ""));
-  box.append(el("div", "meta", (c.register || "") + " / " + (c.status || "") + " — scope: " + (c.scope || "")));
-  (c.alternatives || []).forEach((a) => box.append(el("div", "meta", "alternative: " + a)));
-  (c.unchecked_items || []).forEach((u) => box.append(el("div", "meta", "not checked: " + u)));
-  if (c.next_discriminating_check) {
-    box.append(el("div", "meta", "next check: " + c.next_discriminating_check));
-  }
   return box;
 }
 

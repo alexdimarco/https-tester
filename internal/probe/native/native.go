@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/alexdimarco/https-tester/internal/evidence"
@@ -442,6 +443,17 @@ func normalize(err error) string {
 	var ne net.Error
 	if errors.As(err, &ne) && ne.Timeout() {
 		return "timeout"
+	}
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "handshake failure"):
+		return "tls_handshake_failure"
+	case strings.Contains(s, "protocol version not supported"), strings.Contains(s, "no supported versions"):
+		return "tls_version_not_supported"
+	case strings.Contains(s, "connection refused"):
+		return "connection_refused"
+	case strings.Contains(s, "no route to host"), strings.Contains(s, "network is unreachable"):
+		return "network_unreachable"
 	}
 	return "see_raw_error"
 }

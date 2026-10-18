@@ -138,6 +138,7 @@ type Claim struct {
 	ID                      string   `json:"id"`
 	RuleID                  string   `json:"rule_id"`
 	Register                string   `json:"register"`
+	Checked                 string   `json:"checked"`
 	Statement               string   `json:"statement"`
 	Scope                   string   `json:"scope"`
 	Status                  string   `json:"status"`
