@@ -90,6 +90,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/next", s.wrap(true, s.handleNext))
 	mux.HandleFunc("GET /api/runs/{id}", s.wrap(true, s.handleGetRun))
 	mux.HandleFunc("GET /api/runs/{id}/assessment", s.wrap(true, s.handleAssessment))
+	mux.HandleFunc("POST /api/runs/{id}/imports", s.wrap(true, s.handleImport))
 	mux.HandleFunc("POST /api/runs/{id}/export", s.wrap(true, s.handleExport))
 	mux.HandleFunc("POST /api/shutdown", s.wrap(true, s.handleShutdown))
 	return mux
@@ -254,6 +255,27 @@ func (s *Server) handleAssessment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Kind string `json:"kind"`
+		Text string `json:"text"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Kind != "nginx" {
+		writeErr(w, http.StatusBadRequest, "unsupported import kind (only \"nginx\" is supported)")
+		return
+	}
+	review, err := s.session.ImportNginx(r.PathValue("id"), body.Text)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, review)
 }
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {

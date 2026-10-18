@@ -57,7 +57,7 @@ label { display: block; font-weight: 600; margin: 12px 0 4px; }
 label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: flex-start; }
 label.checkbox input { width: auto; margin-top: 4px; }
 
-input[type=text] {
+input[type=text], textarea {
   width: 100%;
   padding: 10px;
   font: inherit;
@@ -66,6 +66,7 @@ input[type=text] {
   background: var(--bg);
   color: var(--fg);
 }
+textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; resize: vertical; }
 
 .scope { color: var(--muted); font-size: 0.9rem; }
 

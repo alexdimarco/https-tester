@@ -103,6 +103,7 @@ async function startRun() {
     $("runSection").hidden = false;
     $("resultSection").hidden = false;
     $("assessSection").hidden = true;
+    $("nginxSection").hidden = false;
     renderRun(data);
     setStatus("Target authorized. Run the test when ready.");
   } catch (e) {
@@ -281,6 +282,45 @@ function renderAssessment(a) {
   $("assessDisclaimer").textContent = a.disclaimer || "";
 }
 
+async function reviewNginx() {
+  if (!runID) return;
+  const text = $("nginxText").value;
+  if (!text.trim()) {
+    setStatus("Paste some Nginx configuration or output first.", true);
+    return;
+  }
+  setStatus("Reviewing configuration…");
+  try {
+    const review = await api("POST", "/api/runs/" + runID + "/imports", { kind: "nginx", text });
+    renderNginx(review);
+    setStatus("Configuration reviewed (operator-supplied; not the running server).");
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
+function renderNginx(review) {
+  const box = $("nginxFindings");
+  box.replaceChildren();
+  const findings = review.findings || [];
+  if (!findings.length) {
+    box.append(el("p", "scope", "No ssl-related directives were recognized in the text."));
+  }
+  findings.forEach((f) => {
+    const d = el("div", "assess-prop sev-" + (f.severity || ""));
+    const head = el("div", "assess-head");
+    head.append(el("span", "badge " + (f.severity || ""), f.severity || ""));
+    head.append(el("span", "statement", f.topic || ""));
+    d.append(head);
+    d.append(el("div", "assess-note", f.detail || ""));
+    box.append(d);
+  });
+  const notes = $("nginxNotes");
+  notes.replaceChildren();
+  (review.parse_errors || []).forEach((e) => notes.append(el("div", "", "parse note: " + e)));
+  (review.notes || []).forEach((n) => notes.append(el("div", "", n)));
+}
+
 async function preview(format) {
   if (!runID) return;
   setStatus("Rendering report…");
@@ -317,6 +357,7 @@ async function main() {
   });
   $("reportBtn").addEventListener("click", () => preview("text"));
   $("jsonBtn").addEventListener("click", () => preview("json"));
+  $("nginxReviewBtn").addEventListener("click", reviewNginx);
   $("shutdownBtn").addEventListener("click", shutdown);
 
   if (await bootstrap()) {

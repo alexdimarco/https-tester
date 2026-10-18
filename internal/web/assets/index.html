@@ -80,6 +80,18 @@
       <p id="assessDisclaimer" class="fineprint"></p>
     </section>
 
+    <section aria-labelledby="nginxHeading" id="nginxSection" hidden>
+      <h2 id="nginxHeading">Server-side evidence (Nginx)</h2>
+      <p class="scope">Paste a redacted Nginx config excerpt and/or <code>nginx -t</code> / <code>nginx -T</code> output. It is read statically — nothing is executed, no files are opened, and it is treated as operator-supplied, not the running configuration.</p>
+      <label for="nginxText">Nginx configuration / output</label>
+      <textarea id="nginxText" rows="6" spellcheck="false" placeholder="ssl_protocols TLSv1.2 TLSv1.3;&#10;ssl_ecdh_curve prime256v1:secp256r1:secp384r1;"></textarea>
+      <div class="actions">
+        <button id="nginxReviewBtn" type="button" class="secondary">Review configuration</button>
+      </div>
+      <div id="nginxFindings"></div>
+      <div id="nginxNotes" class="fineprint"></div>
+    </section>
+
     <section aria-labelledby="reportHeading" id="reportSection" hidden>
       <h2 id="reportHeading">Report</h2>
       <pre id="reportOut" tabindex="0"></pre>

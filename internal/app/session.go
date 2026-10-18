@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexdimarco/https-tester/internal/assess"
 	"github.com/alexdimarco/https-tester/internal/evidence"
+	"github.com/alexdimarco/https-tester/internal/nginxreview"
 	"github.com/alexdimarco/https-tester/internal/probe/adapter"
 	"github.com/alexdimarco/https-tester/internal/probe/native"
 	"github.com/alexdimarco/https-tester/internal/report"
@@ -391,6 +392,33 @@ func orUnknown(s string) string {
 		return "unknown"
 	}
 	return s
+}
+
+// ImportNginx statically reviews an operator-supplied Nginx configuration
+// excerpt, records it as operator-supplied evidence, and returns the review.
+func (s *Session) ImportNginx(runID, text string) (nginxreview.Review, error) {
+	run, err := s.lookup(runID)
+	if err != nil {
+		return nginxreview.Review{}, err
+	}
+	review := nginxreview.Analyze(text)
+	now := time.Now().UTC()
+	run.AddConsentEvent(evidence.ConsentEvent{
+		AtUTC:  now,
+		Kind:   "nginx_config_imported",
+		Detail: fmt.Sprintf("%d findings, %d parse errors", len(review.Findings), len(review.ParseErrors)),
+	})
+	run.AddClaim(evidence.Claim{
+		RuleID:                  "gate-c-nginx-import",
+		Register:                "operator-supplied static review",
+		Checked:                 "An Nginx configuration excerpt you pasted, read statically.",
+		Status:                  evidence.StatusObserved,
+		Scope:                   "the pasted text only, not the running server",
+		Statement:               fmt.Sprintf("Reviewed an operator-supplied Nginx configuration excerpt: %d finding(s). This is pasted text, not the running configuration.", len(review.Findings)),
+		UncheckedItems:          []string{"the effective running configuration was not verified; include files were not opened"},
+		NextDiscriminatingCheck: "confirm with 'nginx -t' and 'nginx -T' on the actual instance, and compare the reported topology with the observed TLS endpoint.",
+	})
+	return review, nil
 }
 
 // Assess returns the protocol-posture assessment derived from a run's
