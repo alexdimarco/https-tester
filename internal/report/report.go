@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alexdimarco/https-tester/internal/assess"
 	"github.com/alexdimarco/https-tester/internal/evidence"
 )
 
@@ -56,6 +57,28 @@ func Text(run evidence.Run) string {
 			line(&b, "    Suggested next test: %s", c.NextDiscriminatingCheck)
 		}
 	}
+	line(&b, "")
+
+	// --- protocol assessment (posture, scoped to what was tested) ---
+	a := assess.Build(run)
+	line(&b, "PROTOCOL ASSESSMENT")
+	line(&b, "%s", strings.Repeat("-", 52))
+	line(&b, "  Security knowledge as of: %s (author baseline; re-review periodically)", a.KnowledgeAsOf)
+	line(&b, "  Scope: %s", a.Scope)
+	if len(a.Properties) == 0 {
+		line(&b, "  Nothing assessable yet — run some tests first.")
+	}
+	for _, p := range a.Properties {
+		line(&b, "  [%s] %s — %s", p.Severity, p.Name, p.State)
+		line(&b, "        %s", p.Note)
+	}
+	if len(a.NotTested) > 0 {
+		line(&b, "  Not tested (and why it still matters):")
+		for _, g := range a.NotTested {
+			line(&b, "    - %s: %s", g.Name, g.Why)
+		}
+	}
+	line(&b, "  %s", a.Disclaimer)
 	line(&b, "")
 
 	// --- test details (the raw observations, with friendly labels) ---

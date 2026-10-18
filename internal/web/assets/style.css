@@ -10,6 +10,7 @@
   --danger: #a11;
   --ok: #176b2c;
   --fail: #a11;
+  --warn: #8a5a00;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -23,6 +24,7 @@
     --danger: #ff6b6b;
     --ok: #5fd27a;
     --fail: #ff6b6b;
+    --warn: #e0b341;
   }
 }
 
@@ -121,9 +123,18 @@ button:focus-visible, input:focus-visible, pre:focus-visible {
   border: 1px solid;
   white-space: nowrap;
 }
-.badge.pass { color: var(--ok); border-color: var(--ok); }
-.badge.fail { color: var(--fail); border-color: var(--fail); }
+.badge.pass, .badge.info { color: var(--ok); border-color: var(--ok); }
+.badge.fail, .badge.attention { color: var(--fail); border-color: var(--fail); }
 .badge.note { color: var(--muted); border-color: var(--line); }
+.badge.consider { color: var(--warn); border-color: var(--warn); }
+
+.assess-prop { border-left: 4px solid var(--line); padding: 6px 10px; margin: 8px 0; background: var(--bg); }
+.assess-prop.sev-info { border-color: var(--ok); }
+.assess-prop.sev-consider { border-color: var(--warn); }
+.assess-prop.sev-attention { border-color: var(--fail); }
+.assess-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.assess-note { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+.assess-gap { font-size: 0.9rem; margin: 4px 0; }
 .finding dl { margin: 8px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; }
 .finding dt { color: var(--muted); }
 .finding dd { margin: 0; word-break: break-word; }

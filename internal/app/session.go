@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexdimarco/https-tester/internal/assess"
 	"github.com/alexdimarco/https-tester/internal/evidence"
 	"github.com/alexdimarco/https-tester/internal/probe/native"
 	"github.com/alexdimarco/https-tester/internal/report"
@@ -244,6 +245,16 @@ func groupProbe(profile, probeID, groupName string, curve tls.CurveID) probe {
 		min:   tls.VersionTLS13, max: tls.VersionTLS13,
 		curves: []tls.CurveID{curve},
 	}
+}
+
+// Assess returns the protocol-posture assessment derived from a run's
+// observations.
+func (s *Session) Assess(runID string) (assess.Assessment, error) {
+	run, err := s.lookup(runID)
+	if err != nil {
+		return assess.Assessment{}, err
+	}
+	return assess.Build(run.Snapshot()), nil
 }
 
 // Get returns a redacted snapshot of a run.

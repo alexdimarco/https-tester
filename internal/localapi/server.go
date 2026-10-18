@@ -89,6 +89,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/runs", s.wrap(true, s.handleCreateRun))
 	mux.HandleFunc("POST /api/runs/{id}/next", s.wrap(true, s.handleNext))
 	mux.HandleFunc("GET /api/runs/{id}", s.wrap(true, s.handleGetRun))
+	mux.HandleFunc("GET /api/runs/{id}/assessment", s.wrap(true, s.handleAssessment))
 	mux.HandleFunc("POST /api/runs/{id}/export", s.wrap(true, s.handleExport))
 	mux.HandleFunc("POST /api/shutdown", s.wrap(true, s.handleShutdown))
 	return mux
@@ -244,6 +245,15 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+func (s *Server) handleAssessment(w http.ResponseWriter, r *http.Request) {
+	a, err := s.session.Assess(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {

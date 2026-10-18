@@ -85,6 +85,7 @@ async function startRun() {
       " · trust " + data.trust_mode;
     $("runSection").hidden = false;
     $("resultSection").hidden = false;
+    $("assessSection").hidden = true;
     renderRun(data);
     setStatus("Target authorized. Run the test when ready.");
   } catch (e) {
@@ -100,6 +101,7 @@ async function runProfile(profile, btn) {
   try {
     const data = await api("POST", "/api/runs/" + runID + "/next", { profile });
     renderRun(data);
+    await loadAssessment();
     setStatus("Test complete (" + (profile || "default") + ").");
   } catch (e) {
     setStatus(e.message, true);
@@ -208,6 +210,41 @@ function renderObservation(o) {
   });
   if (dl.childNodes.length) box.append(dl);
   return box;
+}
+
+async function loadAssessment() {
+  if (!runID) return;
+  try {
+    const a = await api("GET", "/api/runs/" + runID + "/assessment");
+    renderAssessment(a);
+  } catch (e) {
+    // non-fatal: the assessment is a convenience view
+  }
+}
+
+function renderAssessment(a) {
+  $("assessSection").hidden = false;
+  $("assessMeta").textContent = "Security knowledge as of " + (a.knowledge_as_of || "unknown") + " (author baseline). " + (a.scope || "");
+  const props = $("assessProps");
+  props.replaceChildren();
+  (a.properties || []).forEach((p) => {
+    const box = el("div", "assess-prop sev-" + (p.severity || ""));
+    const head = el("div", "assess-head");
+    head.append(el("span", "badge " + (p.severity || ""), p.severity || ""));
+    head.append(el("span", "statement", p.name + " — " + p.state));
+    box.append(head);
+    box.append(el("div", "assess-note", p.note || ""));
+    props.append(box);
+  });
+  const gaps = $("assessGaps");
+  gaps.replaceChildren();
+  (a.not_tested || []).forEach((g) => {
+    const d = el("div", "assess-gap");
+    d.append(el("strong", "", g.name + ": "));
+    d.append(document.createTextNode(g.why || ""));
+    gaps.append(d);
+  });
+  $("assessDisclaimer").textContent = a.disclaimer || "";
 }
 
 async function preview(format) {
