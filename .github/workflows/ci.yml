@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Detect Go module
+        id: gomod
+        run: |
+          if [ -f go.mod ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The steps below activate automatically once a go.mod is added.
+      # Until then this job stays green so the design-stage repo isn't red.
+      - name: Set up Go
+        if: steps.gomod.outputs.exists == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Format check
+        if: steps.gomod.outputs.exists == 'true'
+        run: test -z "$(gofmt -l .)" || { echo 'gofmt needed on:'; gofmt -l .; exit 1; }
+
+      - name: Vet
+        if: steps.gomod.outputs.exists == 'true'
+        run: go vet ./...
+
+      - name: Build
+        if: steps.gomod.outputs.exists == 'true'
+        run: go build ./...
+
+      - name: Test
+        if: steps.gomod.outputs.exists == 'true'
+        run: go test ./... -race -count=1
+
+      - name: No module yet
+        if: steps.gomod.outputs.exists != 'true'
+        run: echo "No go.mod yet — design-stage repository. CI will build and test once the Go module is added."
