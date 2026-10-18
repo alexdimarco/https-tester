@@ -4,10 +4,30 @@ A local-only, cross-platform tool for troubleshooting HTTPS connections — one
 test at a time, with every result labelled by what it does and does **not**
 prove.
 
-> **Status: design stage.** This repository currently holds the design, not a
-> working application. No code has been written or tested yet. The full
-> specification is in
+> **Status: v0.1.0-alpha.** The Go probe engine works and is tested on Linux,
+> macOS, and Windows in CI. Binaries are **unsigned** (your OS will warn on first
+> run), there is no independent security review of the local API yet, and legacy
+> TLS 1.0/1.1 and cipher-suite enumeration are out of scope for this build. See
+> the [CHANGELOG](CHANGELOG.md) and the full design in
 > [`docs/HTTPS_Diagnostic_Workbench_Design.md`](docs/HTTPS_Diagnostic_Workbench_Design.md).
+
+## Quick start
+
+```sh
+# from source
+go run ./cmd/httpsdiag
+# then open the printed http://127.0.0.1:<port>/#... URL in your browser
+```
+
+Or download a binary from the [releases](https://github.com/alexdimarco/https-tester/releases).
+Because the binaries are unsigned, verify what you downloaded and clear the OS
+guard before running:
+
+```sh
+shasum -a 256 -c SHA256SUMS                               # checksums
+gh attestation verify ./httpsdiag-<os>-<arch> --repo alexdimarco/https-tester
+xattr -d com.apple.quarantine ./httpsdiag-darwin-*        # macOS only
+```
 
 ## What it will do
 

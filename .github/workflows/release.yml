@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write      # create the release and upload assets
+  id-token: write      # for build-provenance attestation
+  attestations: write  # for build-provenance attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Run tests before releasing
+        run: go test ./... -count=1
+
+      - name: Cross-build all targets
+        run: |
+          mkdir -p dist
+          VERSION="${GITHUB_REF_NAME}"
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${t%/*}"; arch="${t#*/}"; ext=""
+            [ "$os" = "windows" ] && ext=".exe"
+            out="dist/httpsdiag-${os}-${arch}${ext}"
+            echo "building $out"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.build=${VERSION}" -o "$out" ./cmd/httpsdiag
+          done
+          ( cd dist && sha256sum * > SHA256SUMS )
+          cat dist/SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/httpsdiag-*"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --prerelease \
+            --notes "$(cat <<'NOTES'
+          HTTPS Diagnostic Workbench — alpha.
+
+          Unsigned binaries. They are NOT code-signed for macOS Gatekeeper or
+          Windows SmartScreen, so your OS will warn on first run. Verify what you
+          downloaded instead:
+
+          - checksums: see SHA256SUMS (run `shasum -a 256 -c SHA256SUMS`)
+          - build provenance: `gh attestation verify <binary> --repo ${{ github.repository }}`
+
+          macOS: remove the quarantine flag with
+          `xattr -d com.apple.quarantine httpsdiag-darwin-*` before running.
+
+          Run `./httpsdiag-<os>-<arch>` and open the printed localhost URL.
+          Tests run on Linux, macOS, and Windows in CI; manual multi-OS QA and an
+          independent security review of the local API are still pending.
+          NOTES
+          )"
