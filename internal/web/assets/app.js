@@ -103,6 +103,7 @@ async function startRun() {
     $("runSection").hidden = false;
     $("resultSection").hidden = false;
     $("assessSection").hidden = true;
+    $("profSection").hidden = true;
     $("nginxSection").hidden = false;
     renderRun(data);
     setStatus("Target authorized. Run the test when ready.");
@@ -120,6 +121,7 @@ async function runProfile(profile, btn) {
     const data = await api("POST", "/api/runs/" + runID + "/next", { profile });
     renderRun(data);
     await loadAssessment();
+    await loadProfiles();
     setStatus("Test complete (" + (profile || "default") + ").");
   } catch (e) {
     setStatus(e.message, true);
@@ -280,6 +282,41 @@ function renderAssessment(a) {
   });
 
   $("assessDisclaimer").textContent = a.disclaimer || "";
+}
+
+async function loadProfiles() {
+  if (!runID) return;
+  try {
+    const d = await api("GET", "/api/runs/" + runID + "/profiles");
+    renderProfiles(d.profiles || []);
+  } catch (e) {
+    // non-fatal
+  }
+}
+
+const STANDING_BADGE = { recommended: "info", "high-security": "info", "below-baseline": "attention" };
+const CHECK_BADGE = { met: "info", unmet: "attention", not_tested: "note", consider: "consider" };
+
+function renderProfiles(profiles) {
+  $("profSection").hidden = false;
+  const box = $("profiles");
+  box.replaceChildren();
+  profiles.forEach((p) => {
+    const card = el("div", "assess-prop sev-" + (STANDING_BADGE[p.standing] || "note"));
+    const head = el("div", "assess-head");
+    head.append(el("span", "badge " + (STANDING_BADGE[p.standing] || "note"), p.standing || ""));
+    head.append(el("span", "statement", p.name || ""));
+    card.append(head);
+    card.append(el("div", "assess-note", p.summary || ""));
+    (p.checks || []).forEach((c) => {
+      const row = el("div", "assess-gap");
+      row.append(el("span", "badge " + (CHECK_BADGE[c.status] || "note"), c.status || ""));
+      row.append(document.createTextNode(" " + c.expectation + (c.detail ? " — " + c.detail : "")));
+      card.append(row);
+    });
+    card.append(el("div", "fineprint", "Source: " + (p.source || "")));
+    box.append(card);
+  });
 }
 
 async function reviewNginx() {

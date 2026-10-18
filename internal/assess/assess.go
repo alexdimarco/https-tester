@@ -42,6 +42,8 @@ type Reference struct {
 // References are the primary sources the risk notes were verified against.
 var References = []Reference{
 	{Topic: "TLS 1.0 and 1.1 are formally deprecated (weak)", Cite: "IETF RFC 8996 / BCP 195 (Mar 2021)", URL: "https://www.rfc-editor.org/rfc/rfc8996"},
+	{Topic: "Secure-use TLS baseline: MUST NOT negotiate TLS 1.0/1.1, MUST support 1.2, SHOULD prefer 1.3", Cite: "IETF RFC 9325 / BCP 195 (Nov 2022, obsoletes RFC 7525)", URL: "https://www.rfc-editor.org/rfc/rfc9325"},
+	{Topic: "Server-side TLS configuration profiles (Intermediate, Modern)", Cite: "docs.tlsref.org (successor to Mozilla Server-Side TLS)", URL: "https://docs.tlsref.org/"},
 	{Topic: "TLS 1.3 protocol; ephemeral-only key exchange gives forward secrecy", Cite: "IETF RFC 8446 (Aug 2018)", URL: "https://www.rfc-editor.org/rfc/rfc8446"},
 	{Topic: "TLS 1.2 baseline, TLS 1.3 recommended (US gov guidance)", Cite: "NIST SP 800-52 Rev. 2 (Aug 2019)", URL: "https://doi.org/10.6028/NIST.SP.800-52r2"},
 	{Topic: "ML-KEM post-quantum KEM (ML-KEM-768 parameter set)", Cite: "NIST FIPS 203 (Aug 2024)", URL: "https://doi.org/10.6028/NIST.FIPS.203"},
@@ -84,50 +86,58 @@ func Build(run evidence.Run) Assessment {
 		References: References,
 	}
 
-	var tls12, tls13 *bool
-	groups := map[string]bool{}
-	var groupOrder []string
-	pqObserved := false
-	certState := "" // "", "pass", or a normalized certificate error
+	sc := scan(run)
+	a.Properties = buildProperties(sc.certState, sc.tls12, sc.tls13, sc.groups, sc.groupOrder, sc.pq)
+	a.NotTested = buildGaps(sc.tls12, sc.tls13)
+	return a
+}
 
+// scanResult is the observed TLS posture distilled from a run's observations.
+type scanResult struct {
+	tls12, tls13 *bool
+	groups       map[string]bool
+	groupOrder   []string
+	pq           bool
+	certState    string // "", "pass", or a normalized certificate error
+}
+
+func scan(run evidence.Run) scanResult {
+	sc := scanResult{groups: map[string]bool{}}
 	for _, o := range run.Observations {
-		if o.Stage == evidence.StageCertificate && o.Outcome == evidence.OutcomePass && certState == "" {
-			certState = "pass"
+		if o.Stage == evidence.StageCertificate && o.Outcome == evidence.OutcomePass && sc.certState == "" {
+			sc.certState = "pass"
 		}
 		if o.Stage != evidence.StageTLS {
 			continue
 		}
 		pass := o.Outcome == evidence.OutcomePass
 		if pass && strings.Contains(o.Group, "MLKEM") {
-			pqObserved = true
+			sc.pq = true
 		}
 		switch {
 		case o.ProbeID == "TLS-12":
-			tls12 = boolPtr(pass)
+			sc.tls12 = boolPtr(pass)
 		case o.ProbeID == "TLS-13":
-			tls13 = boolPtr(pass)
+			sc.tls13 = boolPtr(pass)
 		case strings.HasPrefix(o.ProbeID, "GROUP-"):
 			name := groupFriendly(o.ProbeID)
-			if _, seen := groups[name]; !seen {
-				groupOrder = append(groupOrder, name)
+			if _, seen := sc.groups[name]; !seen {
+				sc.groupOrder = append(sc.groupOrder, name)
 			}
-			groups[name] = pass
+			sc.groups[name] = pass
 		case o.ProbeID == "HTTPS-01" && pass:
-			if o.NegotiatedVersion == "TLS 1.3" && tls13 == nil {
-				tls13 = boolPtr(true)
+			if o.NegotiatedVersion == "TLS 1.3" && sc.tls13 == nil {
+				sc.tls13 = boolPtr(true)
 			}
-			if o.NegotiatedVersion == "TLS 1.2" && tls12 == nil {
-				tls12 = boolPtr(true)
+			if o.NegotiatedVersion == "TLS 1.2" && sc.tls12 == nil {
+				sc.tls12 = boolPtr(true)
 			}
 		}
-		if !pass && isCertError(o.NormalizedError) && certState == "" {
-			certState = o.NormalizedError
+		if !pass && isCertError(o.NormalizedError) && sc.certState == "" {
+			sc.certState = o.NormalizedError
 		}
 	}
-
-	a.Properties = buildProperties(certState, tls12, tls13, groups, groupOrder, pqObserved)
-	a.NotTested = buildGaps(tls12, tls13)
-	return a
+	return sc
 }
 
 func buildProperties(certState string, tls12, tls13 *bool, groups map[string]bool, order []string, pq bool) []Property {

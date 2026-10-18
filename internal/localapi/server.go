@@ -90,6 +90,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/next", s.wrap(true, s.handleNext))
 	mux.HandleFunc("GET /api/runs/{id}", s.wrap(true, s.handleGetRun))
 	mux.HandleFunc("GET /api/runs/{id}/assessment", s.wrap(true, s.handleAssessment))
+	mux.HandleFunc("GET /api/runs/{id}/profiles", s.wrap(true, s.handleProfiles))
 	mux.HandleFunc("POST /api/runs/{id}/imports", s.wrap(true, s.handleImport))
 	mux.HandleFunc("POST /api/runs/{id}/export", s.wrap(true, s.handleExport))
 	mux.HandleFunc("POST /api/shutdown", s.wrap(true, s.handleShutdown))
@@ -255,6 +256,15 @@ func (s *Server) handleAssessment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
+	profiles, err := s.session.Profiles(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
 }
 
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {

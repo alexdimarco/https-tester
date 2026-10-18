@@ -80,6 +80,12 @@
       <p id="assessDisclaimer" class="fineprint"></p>
     </section>
 
+    <section aria-labelledby="profHeading" id="profSection" hidden>
+      <h2 id="profHeading">Compatibility &amp; security profiles</h2>
+      <p class="scope">How the observed posture lines up with named targets. Compares TLS-version posture only; cipher strength and legacy-protocol acceptance are not fully testable here.</p>
+      <div id="profiles"></div>
+    </section>
+
     <section aria-labelledby="nginxHeading" id="nginxSection" hidden>
       <h2 id="nginxHeading">Server-side evidence (Nginx)</h2>
       <p class="scope">Paste a redacted Nginx config excerpt and/or <code>nginx -t</code> / <code>nginx -T</code> output. It is read statically — nothing is executed, no files are opened, and it is treated as operator-supplied, not the running configuration.</p>

@@ -431,6 +431,16 @@ func (s *Session) Assess(runID string) (assess.Assessment, error) {
 	return assess.Build(run.Snapshot()), nil
 }
 
+// Profiles compares the run's observed posture against the legacy /
+// Intermediate / Modern targets.
+func (s *Session) Profiles(runID string) ([]assess.ProfileTarget, error) {
+	run, err := s.lookup(runID)
+	if err != nil {
+		return nil, err
+	}
+	return assess.CompareProfiles(run.Snapshot()), nil
+}
+
 // Get returns a redacted snapshot of a run.
 func (s *Session) Get(runID string) (evidence.Run, error) {
 	run, err := s.lookup(runID)
