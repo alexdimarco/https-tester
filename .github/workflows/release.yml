@@ -70,3 +70,40 @@ jobs:
           independent security review of the local API are still pending.
           NOTES
           )"
+
+  package-macos:
+    needs: release
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build universal binary and package .app
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p build dist
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.build=${VERSION}" -o build/httpsdiag-amd64 ./cmd/httpsdiag
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.build=${VERSION}" -o build/httpsdiag-arm64 ./cmd/httpsdiag
+          lipo -create -output build/httpsdiag-universal build/httpsdiag-amd64 build/httpsdiag-arm64
+          sh scripts/package-macos.sh build/httpsdiag-universal "${VERSION}" dist
+          ( cd dist && ditto -c -k --keepParent "HTTPS Diagnostic Workbench.app" "httpsdiag-macos-universal-app.zip" )
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/httpsdiag-macos-universal-app.zip"
+
+      - name: Upload .app to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" "dist/httpsdiag-macos-universal-app.zip" --clobber

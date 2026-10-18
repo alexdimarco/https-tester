@@ -19,14 +19,21 @@ go run ./cmd/httpsdiag
 # then open the printed http://127.0.0.1:<port>/#... URL in your browser
 ```
 
-Or download a binary from the [releases](https://github.com/alexdimarco/https-tester/releases).
-Because the binaries are unsigned, verify what you downloaded and clear the OS
-guard before running:
+Or download from the [releases](https://github.com/alexdimarco/https-tester/releases):
+
+- **macOS:** `httpsdiag-macos-universal-app.zip` — a universal `.app` bundle.
+  Unzip, then **right-click the app → Open** the first time (it is unsigned, so a
+  plain double-click is blocked by Gatekeeper). It opens your browser; use
+  "Shut down" in the page to stop it.
+- **Linux / Windows:** the `httpsdiag-<os>-<arch>` binary; run it and open the
+  printed `http://127.0.0.1:<port>/#...` URL.
+
+Because the binaries are unsigned, verify what you downloaded:
 
 ```sh
-shasum -a 256 -c SHA256SUMS                               # checksums
+shasum -a 256 -c SHA256SUMS                               # checksums (CLI binaries)
 gh attestation verify ./httpsdiag-<os>-<arch> --repo alexdimarco/https-tester
-xattr -d com.apple.quarantine ./httpsdiag-darwin-*        # macOS only
+xattr -d com.apple.quarantine ./httpsdiag-darwin-*        # macOS CLI binary only
 ```
 
 ## What it will do
