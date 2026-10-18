@@ -1,0 +1,29 @@
+# Compiled binaries / build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+/build/
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Go workspace files
+go.work
+go.work.sum
+
+# OS and editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local environment and secrets — never commit tokens or credentials
+.env
+.env.*
+*.local
