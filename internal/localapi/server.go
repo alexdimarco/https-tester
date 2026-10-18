@@ -222,7 +222,14 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNext(w http.ResponseWriter, r *http.Request) {
-	run, err := s.session.NextProbe(r.Context(), r.PathValue("id"))
+	var body struct {
+		Profile string `json:"profile"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	run, err := s.session.RunProbe(r.Context(), r.PathValue("id"), body.Profile)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

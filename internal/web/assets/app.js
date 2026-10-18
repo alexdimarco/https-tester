@@ -92,18 +92,19 @@ async function startRun() {
   }
 }
 
-async function runNext() {
+async function runProfile(profile, btn) {
   if (!runID) return;
-  $("nextBtn").disabled = true;
-  setStatus("Running the verified HTTPS test…");
+  const buttons = document.querySelectorAll("[data-profile]");
+  buttons.forEach((b) => (b.disabled = true));
+  setStatus("Running test (" + (profile || "default") + ")…");
   try {
-    const data = await api("POST", "/api/runs/" + runID + "/next", {});
+    const data = await api("POST", "/api/runs/" + runID + "/next", { profile });
     renderRun(data);
-    setStatus("Test complete.");
+    setStatus("Test complete (" + (profile || "default") + ").");
   } catch (e) {
     setStatus(e.message, true);
   } finally {
-    $("nextBtn").disabled = false;
+    buttons.forEach((b) => (b.disabled = false));
   }
 }
 
@@ -189,7 +190,9 @@ function elDD(t) { return el("dd", "", t); }
 
 async function main() {
   $("startBtn").addEventListener("click", startRun);
-  $("nextBtn").addEventListener("click", runNext);
+  document.querySelectorAll("[data-profile]").forEach((btn) => {
+    btn.addEventListener("click", () => runProfile(btn.dataset.profile, btn));
+  });
   $("reportBtn").addEventListener("click", () => preview("text"));
   $("jsonBtn").addEventListener("click", () => preview("json"));
   $("shutdownBtn").addEventListener("click", shutdown);

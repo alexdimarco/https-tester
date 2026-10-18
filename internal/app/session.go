@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -142,10 +143,16 @@ func (s *Session) CreateRun(ctx context.Context, req CreateRunRequest) (evidence
 	return run.Snapshot(), nil
 }
 
-// NextProbe runs the single Gate A verified HTTPS probe against the first
-// selected address and appends its observations and a derived claim.
-func (s *Session) NextProbe(ctx context.Context, runID string) (evidence.Run, error) {
+// RunProbe runs one probe profile against the first selected address and
+// appends its observations and a derived claim. The empty profile is the
+// default verified request; named profiles test an exact TLS version or a
+// single key-exchange group.
+func (s *Session) RunProbe(ctx context.Context, runID, profile string) (evidence.Run, error) {
 	run, err := s.lookup(runID)
+	if err != nil {
+		return evidence.Run{}, err
+	}
+	spec, err := profileSpec(profile)
 	if err != nil {
 		return evidence.Run{}, err
 	}
@@ -164,21 +171,72 @@ func (s *Session) NextProbe(ctx context.Context, runID string) (evidence.Run, er
 
 	reqURL := "https://" + scope.Authority + scope.Path
 	result := native.VerifiedRequest(ctx, native.Request{
-		ProbeID:   "HTTPS-01",
-		URL:       reqURL,
-		Host:      scope.Host,
-		Port:      scope.Port,
-		DialAddr:  dialAddr,
-		TrustName: s.trust + "_trust",
-		UserAgent: "https-diagnostic-workbench/" + s.build,
-		Timeouts:  s.timeouts,
+		ProbeID:    spec.probeID,
+		URL:        reqURL,
+		Host:       scope.Host,
+		Port:       scope.Port,
+		DialAddr:   dialAddr,
+		TrustName:  s.trust + "_trust",
+		UserAgent:  "https-diagnostic-workbench/" + s.build,
+		Timeouts:   s.timeouts,
+		MinVersion: spec.min,
+		MaxVersion: spec.max,
+		Curves:     spec.curves,
+		Profile:    spec.label,
 	})
 	for _, o := range result.Observations {
 		run.AddObservation(o)
 	}
-	run.AddClaim(deriveClaim(result, scope))
+	run.AddClaim(deriveClaim(result, scope, spec))
 
 	return run.Snapshot(), nil
+}
+
+// probe describes one named test profile and the exact TLS knobs it sets.
+type probe struct {
+	profile string // caller-supplied key
+	probeID string // evidence probe id
+	kind    string // "default", "version", or "group"
+	label   string // human-readable profile description
+	group   string // group name for the "group" kind
+	min     uint16
+	max     uint16
+	curves  []tls.CurveID
+}
+
+// profileSpec maps a profile key to its TLS controls. Only groups Go actually
+// supports are offered; it never invents an unsupported constant.
+func profileSpec(profile string) (probe, error) {
+	switch profile {
+	case "", "default":
+		return probe{profile: "default", probeID: "HTTPS-01", kind: "default",
+			label: "default (minimum TLS 1.2, library default groups)"}, nil
+	case "tls12":
+		return probe{profile: profile, probeID: "TLS-12", kind: "version",
+			label: "TLS 1.2", min: tls.VersionTLS12, max: tls.VersionTLS12}, nil
+	case "tls13":
+		return probe{profile: profile, probeID: "TLS-13", kind: "version",
+			label: "TLS 1.3", min: tls.VersionTLS13, max: tls.VersionTLS13}, nil
+	case "group:x25519":
+		return groupProbe(profile, "GROUP-X25519", "X25519", tls.X25519), nil
+	case "group:p256":
+		return groupProbe(profile, "GROUP-P256", "P-256", tls.CurveP256), nil
+	case "group:p384":
+		return groupProbe(profile, "GROUP-P384", "P-384", tls.CurveP384), nil
+	case "group:p521":
+		return groupProbe(profile, "GROUP-P521", "P-521", tls.CurveP521), nil
+	default:
+		return probe{}, fmt.Errorf("unknown probe profile %q", profile)
+	}
+}
+
+func groupProbe(profile, probeID, groupName string, curve tls.CurveID) probe {
+	return probe{
+		profile: profile, probeID: probeID, kind: "group", group: groupName,
+		label: "TLS 1.3, " + groupName + " only",
+		min:   tls.VersionTLS13, max: tls.VersionTLS13,
+		curves: []tls.CurveID{curve},
+	}
 }
 
 // Get returns a redacted snapshot of a run.
@@ -279,18 +337,52 @@ func (s *Session) resolveAndScope(ctx context.Context, t *target.Target, private
 	return selected, familyOf(selected), notes, nil
 }
 
-func deriveClaim(r *native.Result, scope evidence.TargetScope) evidence.Claim {
+func deriveClaim(r *native.Result, scope evidence.TargetScope, spec probe) evidence.Claim {
 	base := evidence.Claim{
-		RuleID:   "gate-a-summary",
+		RuleID:   "gate-b-" + spec.kind,
 		Register: "finding about observed results",
 		Status:   evidence.StatusObserved,
-		Scope:    fmt.Sprintf("the Go native client, against %s at %s", scope.Authority, strings.Join(scope.SelectedAddresses, ", ")),
+		Scope:    fmt.Sprintf("the Go native client (%s), against %s at %s", spec.label, scope.Authority, strings.Join(scope.SelectedAddresses, ", ")),
 	}
 	for _, o := range r.Observations {
 		base.SupportingObservations = append(base.SupportingObservations, o.ID)
 	}
+	pass := r.StageReached == evidence.StageHTTP && r.Outcome == evidence.OutcomePass
+	deepest := deepestNonPass(r.Observations)
+	stage := strings.ToUpper(string(r.StageReached))
 
-	if r.StageReached == evidence.StageHTTP && r.Outcome == evidence.OutcomePass {
+	switch spec.kind {
+	case "version":
+		if pass {
+			base.Statement = fmt.Sprintf("With %s, a verified HTTPS response was obtained for this attempt.", spec.label)
+			base.NextDiscriminatingCheck = "compare the other TLS version on the same endpoint to characterize version-dependent behavior."
+		} else {
+			base.Statement = fmt.Sprintf("With %s, the connection did not complete a verified request; it reached the %s stage (%s) for this attempt.%s", spec.label, stage, r.Outcome, certSuffix(deepest))
+			base.Alternatives = []string{"version-dependent behavior in these tests", "a client/profile or trust difference", "a path or virtual-host difference not yet examined"}
+			base.NextDiscriminatingCheck = "run the other TLS version, then controlled single key-exchange groups, on the same endpoint."
+		}
+		base.UncheckedItems = []string{"this does not establish behavior for the other TLS version", "the server's effective configuration was not examined"}
+		return base
+
+	case "group":
+		if pass {
+			base.Statement = fmt.Sprintf("Under TLS 1.3 offering only the %s key-exchange group, the handshake succeeded for this attempt.", spec.group)
+			base.NextDiscriminatingCheck = "offer the other single groups and compare which succeed and which fail."
+		} else {
+			base.Statement = fmt.Sprintf("Under TLS 1.3 offering only the %s key-exchange group, the handshake failed for this attempt. This does not prove the server disables %s.", spec.group, spec.group)
+			base.Alternatives = []string{
+				fmt.Sprintf("the server may not have %s active, OR", spec.group),
+				"a runtime policy, default virtual host, or path difference may explain it",
+				"this client build may not have offered it as expected",
+			}
+			base.NextDiscriminatingCheck = fmt.Sprintf("offer other single groups and compare; then obtain the server's active group configuration and a handshake trace for %s.", spec.group)
+		}
+		base.UncheckedItems = []string{"a single-group result does not enumerate every group the server accepts", "the server's effective configuration was not examined"}
+		return base
+	}
+
+	// default profile
+	if pass {
 		base.Statement = "A verified HTTPS response was obtained from this endpoint with the Go native client."
 		base.UncheckedItems = []string{
 			"this represents the Go client's profile, not a browser or an installed curl/OpenSSL",
@@ -299,11 +391,6 @@ func deriveClaim(r *native.Result, scope evidence.TargetScope) evidence.Claim {
 		base.NextDiscriminatingCheck = "compare an approved installed client (curl/OpenSSL) or a browser against the same endpoint to confirm client-independence."
 		return base
 	}
-
-	// Failure path: name the specific error the deepest non-passing observation
-	// exposed, while keeping the claim scoped to this attempt and this client.
-	deepest := deepestNonPass(r.Observations)
-	stage := strings.ToUpper(string(r.StageReached))
 	switch deepest.NormalizedError {
 	case "certificate_invalid":
 		base.Statement = "The server's certificate failed validation for this attempt: it is expired or not yet valid, as presented to this client."
@@ -328,6 +415,19 @@ func deriveClaim(r *native.Result, scope evidence.TargetScope) evidence.Claim {
 	}
 	base.UncheckedItems = []string{"the server's effective configuration and logs were not examined"}
 	return base
+}
+
+func certSuffix(o evidence.Observation) string {
+	switch o.NormalizedError {
+	case "certificate_invalid":
+		return " The certificate is expired or not yet valid as presented to this client."
+	case "certificate_hostname_mismatch":
+		return " The certificate does not cover the requested hostname."
+	case "certificate_unknown_authority":
+		return " The certificate chains to an authority this client does not trust."
+	default:
+		return ""
+	}
 }
 
 func deepestNonPass(obs []evidence.Observation) evidence.Observation {

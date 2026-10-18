@@ -2,6 +2,7 @@ package native
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
@@ -104,5 +105,47 @@ func TestVerifiedRequestUntrusted(t *testing.T) {
 	}
 	if _, ok := findStage(res.Observations, evidence.StageHTTP); ok {
 		t.Error("no HTTP observation should exist when the handshake failed")
+	}
+}
+
+// TestGroupDependentBehavior mirrors the motivating incident with an owned
+// fixture: a TLS 1.3 server that accepts only P-256. A single-group probe for
+// P-256 succeeds; one for X25519 fails. This verifies that per-group testing
+// distinguishes server behavior, without claiming the server "disables" a group.
+func TestGroupDependentBehavior(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion:       tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{tls.CurveP256}, // the server accepts only P-256
+	}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	u, _ := url.Parse(srv.URL)
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+
+	probe := func(curve tls.CurveID) *Result {
+		return VerifiedRequest(context.Background(), Request{
+			ProbeID:    "GROUP",
+			URL:        srv.URL + "/",
+			Host:       u.Hostname(),
+			Port:       u.Port(),
+			DialAddr:   netip.MustParseAddr(u.Hostname()),
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS13,
+			MaxVersion: tls.VersionTLS13,
+			Curves:     []tls.CurveID{curve},
+			Timeouts:   DefaultTimeouts(),
+		})
+	}
+
+	if got := probe(tls.CurveP256); got.StageReached != evidence.StageHTTP || got.Outcome != evidence.OutcomePass {
+		t.Errorf("P-256-only probe: want http/pass, got %s/%s", got.StageReached, got.Outcome)
+	}
+	if got := probe(tls.X25519); got.Outcome != evidence.OutcomeFail {
+		t.Errorf("X25519-only probe against a P-256-only server: want fail, got %s/%s", got.StageReached, got.Outcome)
 	}
 }

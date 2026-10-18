@@ -58,6 +58,14 @@ type Request struct {
 	TrustName string         // human label for the trust source, e.g. "system"
 	UserAgent string
 	Timeouts  Timeouts
+
+	// Optional TLS controls for exact-version and single-group probes. Zero
+	// values mean "the default profile": minimum TLS 1.2, library default
+	// groups. These are what make per-version and per-group testing possible.
+	MinVersion uint16        // 0 => TLS 1.2
+	MaxVersion uint16        // 0 => library maximum
+	Curves     []tls.CurveID // nil => library default group offer
+	Profile    string        // human label recorded beside the observation
 }
 
 // Result is the ordered set of observations plus a summary of how far the
@@ -126,6 +134,21 @@ func VerifiedRequest(ctx context.Context, req Request) *Result {
 		},
 	}
 
+	tlsConfig := &tls.Config{
+		ServerName: req.Host,
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    req.RootCAs,
+	}
+	if req.MinVersion != 0 {
+		tlsConfig.MinVersion = req.MinVersion
+	}
+	if req.MaxVersion != 0 {
+		tlsConfig.MaxVersion = req.MaxVersion
+	}
+	if len(req.Curves) > 0 {
+		tlsConfig.CurvePreferences = req.Curves
+	}
+
 	dialer := &net.Dialer{Timeout: t.TCP}
 	transport := &http.Transport{
 		Proxy: nil, // direct baseline: no implicit proxy
@@ -134,11 +157,7 @@ func VerifiedRequest(ctx context.Context, req Request) *Result {
 			// only for SNI and certificate verification.
 			return dialer.DialContext(ctx, "tcp", dialTarget)
 		},
-		TLSClientConfig: &tls.Config{
-			ServerName: req.Host,
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    req.RootCAs,
-		},
+		TLSClientConfig:       tlsConfig,
 		TLSHandshakeTimeout:   t.TLS,
 		ResponseHeaderTimeout: t.HTTPHeader,
 		ForceAttemptHTTP2:     true,
@@ -203,7 +222,7 @@ func VerifiedRequest(ctx context.Context, req Request) *Result {
 			dur:       tlsDur,
 			rawErr:    tlsErr,
 			handshake: boolPtr(false),
-			detail:    map[string]string{"server_name": req.Host, "trust_source": req.TrustName},
+			detail:    requestedProfile(req),
 		})
 		return res.finish(evidence.StageTLS, evidence.OutcomeFail)
 	}
@@ -297,8 +316,47 @@ func (r *Result) appendTLS(req Request, cs tls.ConnectionState) {
 		ApplicationProtocol: alpn,
 		HRRStatus:           "not_observable_at_this_gate",
 		CaptureCompleteness: "public_connectionstate_fields_only",
-		Detail:              map[string]string{"server_name": req.Host, "trust_source": req.TrustName},
+		Detail:              requestedProfile(req),
 	})
+}
+
+// requestedProfile describes what the probe asked for, so a reader can compare
+// the requested profile against the effective (negotiated) one.
+func requestedProfile(req Request) map[string]string {
+	d := map[string]string{"server_name": req.Host, "trust_source": req.TrustName}
+	if req.Profile != "" {
+		d["requested_profile"] = req.Profile
+	}
+	d["requested_version_range"] = versionRange(req)
+	if len(req.Curves) > 0 {
+		d["requested_groups"] = curveNames(req.Curves)
+	} else {
+		d["requested_groups"] = "library default"
+	}
+	return d
+}
+
+func versionRange(req Request) string {
+	min := uint16(tls.VersionTLS12)
+	if req.MinVersion != 0 {
+		min = req.MinVersion
+	}
+	maxLabel := "library maximum"
+	if req.MaxVersion != 0 {
+		maxLabel = tls.VersionName(req.MaxVersion)
+	}
+	if req.MaxVersion != 0 && req.MinVersion == req.MaxVersion {
+		return tls.VersionName(min) + " only"
+	}
+	return tls.VersionName(min) + " to " + maxLabel
+}
+
+func curveNames(curves []tls.CurveID) string {
+	parts := make([]string, len(curves))
+	for i, c := range curves {
+		parts[i] = c.String()
+	}
+	return joinNames(parts)
 }
 
 func (r *Result) appendCertificate(req Request, cs tls.ConnectionState) {
