@@ -122,6 +122,27 @@ button.secondary { background: transparent; color: var(--accent); }
 button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Press feedback: the pressed button spins and stays bright; its disabled
+   siblings dim, so it is obvious which action is actually running. */
+button.is-busy { cursor: progress; }
+button.is-busy:disabled { opacity: 1; cursor: progress; }
+button.is-busy::after {
+  content: "";
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.5em;
+  vertical-align: -0.12em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btnspin 0.6s linear infinite;
+}
+@keyframes btnspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  button.is-busy::after { animation: none; opacity: 0.6; }
+}
+
 button:focus-visible, input:focus-visible, pre:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
@@ -194,6 +215,21 @@ pre {
 
 .status { min-height: 1.5em; font-weight: 600; }
 .status.error { color: var(--fail); }
+
+/* Two-server comparison. */
+.compare-sides { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 4px; }
+.compare-side {
+  flex: 1 1 200px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg);
+}
+.compare-side-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.compare-wrap { overflow-x: auto; margin: 12px 0; }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.compare-table th, .compare-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.compare-table th { font-size: 0.72rem; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.compare-table tbody tr.agree-differs td { background: color-mix(in srgb, var(--warn) 10%, var(--bg)); }
+.compare-table tbody tr.has-note td { border-bottom: 0; }
+.compare-note { color: var(--muted); font-size: 0.85rem; }
 
 footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); }
 .fineprint { color: var(--muted); font-size: 0.8rem; }

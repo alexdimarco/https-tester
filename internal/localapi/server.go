@@ -94,6 +94,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/profiles", s.wrap(true, s.handleProfiles))
 	mux.HandleFunc("POST /api/runs/{id}/imports", s.wrap(true, s.handleImport))
 	mux.HandleFunc("POST /api/runs/{id}/export", s.wrap(true, s.handleExport))
+	mux.HandleFunc("POST /api/compare", s.wrap(true, s.handleCompare))
 	mux.HandleFunc("POST /api/shutdown", s.wrap(true, s.handleShutdown))
 	return mux
 }
@@ -312,6 +313,38 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"content": content})
+}
+
+func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		A      string `json:"a"`
+		B      string `json:"b"`
+		Format string `json:"format"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.A == "" || body.B == "" {
+		writeErr(w, http.StatusBadRequest, "two run ids are required (a and b)")
+		return
+	}
+	if body.A == body.B {
+		writeErr(w, http.StatusBadRequest, "choose two different servers to compare")
+		return
+	}
+	result, err := s.session.Compare(body.A, body.B, body.Format)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// A rendered export comes back as a string; the structured comparison for the
+	// live UI comes back as a value to serialize directly.
+	if content, ok := result.(string); ok {
+		writeJSON(w, http.StatusOK, map[string]string{"content": content})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {

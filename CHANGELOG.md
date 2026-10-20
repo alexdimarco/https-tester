@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.3.0 — 2026-10-20
+
+Adds a side-by-side comparison of two servers and a one-click "Run all tests",
+and gives the buttons immediate press feedback so you can see that a test is
+running. Still an early 0.x release; interfaces and behavior may still change.
+
+### Added
+- Two-server side-by-side comparison. Enter a second server ("Compare a second
+  server" in the web UI, or the new `POST /api/compare` endpoint); the tool runs
+  the core suite against it and lines the two up dimension by dimension —
+  verified connection, security tier, each TLS version, each key-exchange group,
+  certificate, and observed issues. Each row is marked "same", "differs", or
+  "can't compare" (when a test ran on only one of the two servers), with a
+  plain-language note. It is **not a grade** and never ranks one server over the
+  other. Available in the web UI and in the reports, downloadable as a `.txt`
+  side-by-side or a self-contained `.json` document (`comparison` plus each
+  server's full document). This compares two servers against each other — distinct
+  from the existing per-server tier placement, which compares one server against
+  the Intermediate / Modern targets.
+- "Run all tests" button runs the whole core suite in order — verified request,
+  TLS 1.3, TLS 1.2, then the X25519, P-256, and P-384 key-exchange groups — in one
+  click, then fills in the report. The individual per-test buttons still work.
+- Press feedback: pressing a test or action button now shows a spinner
+  immediately and keeps that button bright while the others dim, so it is obvious
+  which action is running even when the status line is scrolled off screen. "Run
+  all tests" and the second-server button also show a live count ("Running 3 of
+  6…").
+
+### Fixed
+- An unavailable installed-client button (for example "Installed openssl
+  (unavailable)" when the tool is not present) no longer becomes clickable after a
+  test completes. The group re-enable used to turn every test button back on,
+  including the ones disabled because the client is absent; it now leaves those
+  disabled.
+- Hardened the web UI's startup wiring so a missing element can no longer throw
+  and abort page setup (which would otherwise have left the launch token in the
+  URL and the page unresponsive).
+
 ## v0.2.0 — 2026-10-20
 
 Reports now lead with the answer: every report — text, JSON, and the web UI —

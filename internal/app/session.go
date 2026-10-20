@@ -481,6 +481,35 @@ func (s *Session) Export(runID, format string) (string, error) {
 	}
 }
 
+// Compare renders a side-by-side comparison of two runs in this session. With
+// an empty format it returns the structured assess.Comparison for the live UI;
+// with "text" or "json" it returns the rendered export as a string.
+func (s *Session) Compare(aID, bID, format string) (any, error) {
+	ra, err := s.lookup(aID)
+	if err != nil {
+		return nil, fmt.Errorf("first server: %w", err)
+	}
+	rb, err := s.lookup(bID)
+	if err != nil {
+		return nil, fmt.Errorf("second server: %w", err)
+	}
+	a, b := ra.Snapshot(), rb.Snapshot()
+	switch format {
+	case "", "structured":
+		return assess.Compare(a, b), nil
+	case "json":
+		out, jerr := report.CompareJSONDocument(a, b)
+		if jerr != nil {
+			return nil, jerr
+		}
+		return string(out), nil
+	case "text":
+		return report.CompareText(a, b), nil
+	default:
+		return nil, fmt.Errorf("unknown comparison format %q (use text or json)", format)
+	}
+}
+
 func (s *Session) lookup(runID string) (*evidence.LiveRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

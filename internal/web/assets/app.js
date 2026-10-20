@@ -4,6 +4,8 @@
 let capability = "";
 let runID = "";
 let lastRun = null; // the most recent run snapshot, for naming downloads
+let runIDB = "";    // the second server's run, used only for the comparison
+let lastRunB = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,6 +13,44 @@ function setStatus(msg, isError) {
   const el = $("status");
   el.textContent = msg || "";
   el.classList.toggle("error", !!isError);
+}
+
+// Immediate press feedback: the clicked button shows a spinner and (optionally)
+// a "working" label, and stays full-opacity while its siblings dim — so it is
+// obvious which action is running, even when the status line is scrolled away.
+function setBusy(btn, label) {
+  if (!btn) return;
+  if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent;
+  btn.classList.add("is-busy");
+  btn.setAttribute("aria-busy", "true");
+  if (label) btn.textContent = label;
+}
+function clearBusy(btn) {
+  if (!btn) return;
+  btn.classList.remove("is-busy");
+  btn.removeAttribute("aria-busy");
+  if (btn.dataset.label !== undefined) {
+    btn.textContent = btn.dataset.label;
+    delete btn.dataset.label;
+  }
+}
+// Wrap a standalone async button so a press immediately shows a busy state and
+// the button is re-enabled once the work settles (the handler owns its errors).
+function onClickBusy(btn, label, handler) {
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    setBusy(btn, label);
+    try { await handler(); } finally { clearBusy(btn); btn.disabled = false; }
+  });
+}
+// Guarded click binding by id: if the element is missing (e.g. an id was
+// renamed), skip it rather than throwing and aborting the rest of main() —
+// which would leave the page frozen with the launch token still in the URL.
+function onClick(id, handler) {
+  const b = $(id);
+  if (b) b.addEventListener("click", handler);
 }
 
 async function api(method, path, body) {
@@ -81,6 +121,7 @@ function renderClientButtons(adapters) {
     btn.dataset.profile = "client:" + t.name;
     btn.textContent = "Installed " + t.name + (t.available ? "" : " (unavailable)");
     btn.disabled = !t.available;
+    if (!t.available) btn.dataset.unavailable = "1";
     btn.title = t.version || t.note || "";
     btn.addEventListener("click", () => runProfile(btn.dataset.profile, btn));
     box.append(btn);
@@ -109,6 +150,7 @@ async function startRun() {
     $("assessSection").hidden = true;
     $("profSection").hidden = true;
     $("nginxSection").hidden = false;
+    $("compareSection").hidden = false;
     renderRun(data);
     setStatus("Target authorized. Run the test when ready.");
   } catch (e) {
@@ -116,10 +158,21 @@ async function startRun() {
   }
 }
 
+// setTestButtonsDisabled enables or disables the test buttons as a group. When
+// re-enabling, a button marked unavailable (an installed client that is not
+// present) stays disabled — so a completed run never turns a doomed
+// "(unavailable)" button back into a clickable one.
+function setTestButtonsDisabled(disabled) {
+  document.querySelectorAll("[data-profile], #runAllBtn").forEach((b) => {
+    if (!disabled && b.dataset.unavailable === "1") return;
+    b.disabled = disabled;
+  });
+}
+
 async function runProfile(profile, btn) {
   if (!runID) return;
-  const buttons = document.querySelectorAll("[data-profile]");
-  buttons.forEach((b) => (b.disabled = true));
+  setTestButtonsDisabled(true);
+  setBusy(btn); // spinner on the exact button pressed; keep its label for context
   setStatus("Running test (" + (profile || "default") + ")…");
   try {
     const data = await api("POST", "/api/runs/" + runID + "/next", { profile });
@@ -131,7 +184,52 @@ async function runProfile(profile, btn) {
   } catch (e) {
     setStatus(e.message, true);
   } finally {
-    buttons.forEach((b) => (b.disabled = false));
+    clearBusy(btn);
+    setTestButtonsDisabled(false);
+  }
+}
+
+// The core suite, in the order a reader builds up the picture: does HTTPS work,
+// then each TLS version, then each single key-exchange group. Installed-client
+// comparisons are deliberately left out — they answer a different question and
+// depend on what is installed — so "run all" stays predictable.
+const CORE_PROFILES = ["", "tls13", "tls12", "group:x25519", "group:p256", "group:p384"];
+
+// runSuite runs the whole core suite against one run id, in order, calling
+// onProgress(done, total, profile) before each test. Returns the final snapshot.
+async function runSuite(id, onProgress) {
+  let data = null;
+  for (let i = 0; i < CORE_PROFILES.length; i++) {
+    const p = CORE_PROFILES[i];
+    if (onProgress) onProgress(i + 1, CORE_PROFILES.length, p);
+    data = await api("POST", "/api/runs/" + id + "/next", { profile: p });
+  }
+  return data;
+}
+
+// runAll runs the whole core suite against Server A. The button shows a live
+// count ("Running 3 of 6…") so progress is visible where it was pressed, and
+// the views refresh once at the end rather than after each test.
+async function runAll() {
+  if (!runID) { setStatus("Authorize a target first.", true); return; }
+  const btn = $("runAllBtn");
+  setTestButtonsDisabled(true);
+  setBusy(btn, "Starting…");
+  try {
+    const data = await runSuite(runID, (done, total, p) => {
+      setStatus("Running test " + done + " of " + total + " (" + (p || "default") + ")…");
+      btn.textContent = "Running " + done + " of " + total + "…";
+    });
+    if (data) renderRun(data);
+    await loadSummary();
+    await loadAssessment();
+    await loadProfiles();
+    setStatus("All core tests complete.");
+  } catch (e) {
+    setStatus(e.message, true);
+  } finally {
+    clearBusy(btn);
+    setTestButtonsDisabled(false);
   }
 }
 
@@ -522,17 +620,21 @@ async function downloadReport(format) {
   }
 }
 
+function safeHost(h) {
+  return (h || "server").replace(/[^A-Za-z0-9._-]/g, "_");
+}
+function fileStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" +
+    p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
 function reportFilename(ext) {
   let host = "report";
   if (lastRun && lastRun.target_scope && lastRun.target_scope.host) {
     host = lastRun.target_scope.host;
   }
-  host = host.replace(/[^A-Za-z0-9._-]/g, "_");
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" +
-    p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
-  return "httpsdiag-" + host + "-" + stamp + "." + ext;
+  return "httpsdiag-" + safeHost(host) + "-" + fileStamp() + "." + ext;
 }
 
 function saveTextFile(content, filename, type) {
@@ -548,6 +650,169 @@ function saveTextFile(content, filename, type) {
     a.remove();
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
+// ---- second-server comparison ----
+
+function setCmpStatus(msg, isError) {
+  const el = $("cmpStatus");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("error", !!isError);
+}
+
+// startAndRunB authorizes the second server and runs the whole core suite
+// against it, then renders the side-by-side. Server A is left untouched.
+async function startAndRunB() {
+  const url = $("cmpAddr").value.trim();
+  if (!url) { setCmpStatus("Enter the second server's HTTPS address first.", true); return; }
+  if (!runID) { setCmpStatus("Authorize and test Server A at the top of the page first.", true); return; }
+  const btn = $("cmpRunBtn");
+  btn.disabled = true;
+  setBusy(btn, "Authorizing…");
+  setCmpStatus("Authorizing Server B…");
+  try {
+    const data = await api("POST", "/api/runs", {
+      url,
+      note: $("cmpNote").value.trim(),
+      local_private_approved: $("cmpAllowPrivate").checked,
+    });
+    runIDB = data.run_id;
+    lastRunB = data;
+    await runSuite(runIDB, (done, total, p) => {
+      setCmpStatus("Server B — running test " + done + " of " + total + " (" + (p || "default") + ")…");
+      btn.textContent = "Running " + done + " of " + total + "…";
+    });
+    setCmpStatus("Server B tested. Building the comparison…");
+    await renderComparison();
+    $("cmpResults").hidden = false;
+    setCmpStatus("Comparison ready. It stays on this machine; review before sharing.");
+  } catch (e) {
+    setCmpStatus(e.message, true);
+  } finally {
+    clearBusy(btn);
+    btn.disabled = false;
+  }
+}
+
+// Tier → badge, matching the single-server summary badge wording. Below-baseline
+// is amber (a posture that is "not a goal"), not red (an error).
+function tierBadge(standing) {
+  const map = {
+    "high-security": { cls: "pass", word: "Highest security" },
+    recommended: { cls: "pass", word: "Good security" },
+    "below-baseline": { cls: "consider", word: "Below baseline" },
+    not_tested: { cls: "note", word: "Not tested" },
+  };
+  return map[standing] || { cls: "note", word: standing || "" };
+}
+// Agreement → badge. "differs" is neutral amber (a difference is not an error);
+// "can't compare" is grey (a gap to fill, not a fault).
+const AGREE_BADGE = {
+  same: { cls: "pass", word: "same" },
+  differs: { cls: "consider", word: "differs" },
+  incomparable: { cls: "note", word: "can't compare" },
+};
+
+async function renderComparison() {
+  if (!runID || !runIDB) return;
+  const c = await api("POST", "/api/compare", { a: runID, b: runIDB });
+  const box = $("compareOut");
+  box.replaceChildren();
+
+  // Bottom line + the two servers' headline tiers.
+  const card = el("div", "finding");
+  const head = el("div", "finding-head");
+  head.append(el("span", "badge note", "Bottom line"));
+  head.append(el("span", "statement", c.verdict || ""));
+  card.append(head);
+
+  const sides = el("div", "compare-sides");
+  [c.a, c.b].forEach((s) => {
+    const col = el("div", "compare-side");
+    col.append(el("span", "compare-side-label", "Server " + (s.label || "")));
+    col.append(el("span", "statement", s.host || s.authority || ""));
+    const tb = tierBadge(s.standing);
+    col.append(el("span", "badge " + tb.cls, tb.word));
+    sides.append(col);
+  });
+  card.append(sides);
+  box.append(card);
+
+  // The side-by-side table (scrolls horizontally on a narrow screen).
+  const wrap = el("div", "compare-wrap");
+  const table = el("table", "compare-table");
+  const thead = document.createElement("thead");
+  const htr = document.createElement("tr");
+  ["Dimension", "Server A", "Server B", "Agreement"].forEach((t) => {
+    const th = document.createElement("th");
+    th.textContent = t;
+    htr.append(th);
+  });
+  thead.append(htr);
+  table.append(thead);
+
+  const tbody = document.createElement("tbody");
+  (c.rows || []).forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.className = "agree-" + (r.agreement || "") + (r.note ? " has-note" : "");
+    [r.dimension, r.a, r.b].forEach((v) => {
+      const td = document.createElement("td");
+      td.textContent = v || "";
+      tr.append(td);
+    });
+    const ag = document.createElement("td");
+    const ab = AGREE_BADGE[r.agreement] || { cls: "note", word: r.agreement || "" };
+    ag.append(el("span", "badge " + ab.cls, ab.word));
+    tr.append(ag);
+    tbody.append(tr);
+    if (r.note) {
+      const ntr = document.createElement("tr");
+      ntr.className = "compare-note-row";
+      const ntd = document.createElement("td");
+      ntd.colSpan = 4;
+      ntd.className = "compare-note";
+      ntd.textContent = "note: " + r.note;
+      ntr.append(ntd);
+      tbody.append(ntr);
+    }
+  });
+  table.append(tbody);
+  wrap.append(table);
+  box.append(wrap);
+
+  box.append(el("p", "fineprint",
+    (c.caveat || "") + " Security knowledge as of " + (c.knowledge_as_of || "unknown") + "."));
+}
+
+async function refreshComparison() {
+  setCmpStatus("Refreshing the comparison…");
+  try {
+    await renderComparison();
+    setCmpStatus("Comparison refreshed.");
+  } catch (e) {
+    setCmpStatus(e.message, true);
+  }
+}
+
+function compareFilename(ext) {
+  const a = safeHost(lastRun && lastRun.target_scope && lastRun.target_scope.host);
+  const b = safeHost(lastRunB && lastRunB.target_scope && lastRunB.target_scope.host);
+  return "httpsdiag-compare-" + a + "-vs-" + b + "-" + fileStamp() + "." + ext;
+}
+
+async function downloadComparison(format) {
+  if (!runID || !runIDB) { setCmpStatus("Test both servers first.", true); return; }
+  setCmpStatus("Preparing the comparison download…");
+  try {
+    const data = await api("POST", "/api/compare", { a: runID, b: runIDB, format });
+    const isJson = format === "json";
+    const name = compareFilename(isJson ? "json" : "txt");
+    saveTextFile(data.content || "", name, isJson ? "application/json" : "text/plain");
+    setCmpStatus("Downloaded " + name + ". Results stay on this machine; review before sharing.");
+  } catch (e) {
+    setCmpStatus("Could not save the comparison (" + e.message + ").", true);
   }
 }
 
@@ -568,15 +833,23 @@ function elDT(t) { return el("dt", "", t); }
 function elDD(t) { return el("dd", "", t); }
 
 async function main() {
-  $("startBtn").addEventListener("click", startRun);
+  // Bespoke handlers manage a whole group of buttons (and their own busy state).
+  onClickBusy($("startBtn"), "Starting…", startRun);
+  onClick("runAllBtn", runAll);
   document.querySelectorAll("[data-profile]").forEach((btn) => {
     btn.addEventListener("click", () => runProfile(btn.dataset.profile, btn));
   });
-  $("reportBtn").addEventListener("click", () => preview("text"));
-  $("dlTxtBtn").addEventListener("click", () => downloadReport("text"));
-  $("dlJsonBtn").addEventListener("click", () => downloadReport("json"));
-  $("nginxReviewBtn").addEventListener("click", reviewNginx);
-  $("shutdownBtn").addEventListener("click", shutdown);
+  onClick("cmpRunBtn", startAndRunB);
+
+  // Standalone async buttons get immediate press feedback via the busy wrapper.
+  onClickBusy($("reportBtn"), "Rendering…", () => preview("text"));
+  onClickBusy($("dlTxtBtn"), "Preparing…", () => downloadReport("text"));
+  onClickBusy($("dlJsonBtn"), "Preparing…", () => downloadReport("json"));
+  onClickBusy($("nginxReviewBtn"), "Reviewing…", reviewNginx);
+  onClickBusy($("cmpRefreshBtn"), "Refreshing…", refreshComparison);
+  onClickBusy($("cmpDlTxtBtn"), "Preparing…", () => downloadComparison("text"));
+  onClickBusy($("cmpDlJsonBtn"), "Preparing…", () => downloadComparison("json"));
+  onClick("shutdownBtn", shutdown);
 
   if (await bootstrap()) {
     await loadCapabilities();

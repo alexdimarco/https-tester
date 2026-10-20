@@ -28,13 +28,124 @@ type Document struct {
 // JSONDocument renders the complete export document (summary + run + assessment
 // + profiles) as indented JSON.
 func JSONDocument(run evidence.Run) ([]byte, error) {
-	doc := Document{
+	return json.MarshalIndent(document(run), "", "  ")
+}
+
+func document(run evidence.Run) Document {
+	return Document{
 		Summary:    assess.Summarize(run),
 		Run:        run,
 		Assessment: assess.Build(run),
 		Profiles:   assess.CompareProfiles(run),
 	}
+}
+
+// CompareDocument is the self-contained JSON export for a two-server
+// comparison: the side-by-side reading first, then each server's full document.
+type CompareDocument struct {
+	Comparison assess.Comparison `json:"comparison"`
+	A          Document          `json:"a"`
+	B          Document          `json:"b"`
+}
+
+// CompareJSONDocument renders a two-server comparison as indented JSON: the
+// comparison, then each side's complete single-server document.
+func CompareJSONDocument(a, b evidence.Run) ([]byte, error) {
+	doc := CompareDocument{
+		Comparison: assess.Compare(a, b),
+		A:          document(a),
+		B:          document(b),
+	}
 	return json.MarshalIndent(doc, "", "  ")
+}
+
+// CompareText renders a two-server comparison as a plain-language, side-by-side
+// text report. Like the single-server report it leads with the bottom line, and
+// it marks every dimension that could only be tested on one server rather than
+// implying the servers were compared on it.
+func CompareText(a, b evidence.Run) string {
+	cmp := assess.Compare(a, b)
+	var b2 bytes.Buffer
+
+	line(&b2, "HTTPS Diagnostic Workbench — two-server comparison")
+	line(&b2, "%s", strings.Repeat("=", 52))
+	line(&b2, "")
+	writeSideHeader(&b2, cmp.A)
+	writeSideHeader(&b2, cmp.B)
+	line(&b2, "")
+	line(&b2, "Bottom line:  %s", cmp.Verdict)
+	line(&b2, "")
+
+	line(&b2, "SIDE BY SIDE")
+	line(&b2, "%s", strings.Repeat("-", 52))
+	line(&b2, "  %-30s  %-24s  %-24s  %s", "Dimension", "Server A", "Server B", "Agreement")
+	for _, r := range cmp.Rows {
+		line(&b2, "  %-30s  %-24s  %-24s  %s", r.Dimension, r.A, r.B, agreementWord(r.Agreement))
+		if r.Note != "" {
+			line(&b2, "      note: %s", r.Note)
+		}
+	}
+	line(&b2, "")
+
+	if cmp.A.IssueCount == 0 && cmp.B.IssueCount == 0 {
+		line(&b2, "No issues were observed on either server in the tests run.")
+		line(&b2, "")
+	} else {
+		writeSideIssues(&b2, cmp.A)
+		writeSideIssues(&b2, cmp.B)
+	}
+
+	line(&b2, "KNOWLEDGE & LIMITS")
+	line(&b2, "%s", strings.Repeat("-", 52))
+	line(&b2, "  Security knowledge as of: %s (author baseline; re-review periodically)", cmp.KnowledgeAsOf)
+	line(&b2, "  %s", cmp.Caveat)
+	line(&b2, "  No letter grade is produced, and the comparison does not rank one server over the other.")
+
+	return b2.String()
+}
+
+func writeSideHeader(b *bytes.Buffer, s assess.Side) {
+	line(b, "Server %s:  %s", s.Label, orServer(s.Authority, s.Label))
+	line(b, "           tier: %s · connection: %s · tests run: %d",
+		orNotYet(s.StandingLabel), connWord(s.Connection), s.TestsRun)
+}
+
+func writeSideIssues(b *bytes.Buffer, s assess.Side) {
+	if s.IssueCount == 0 {
+		line(b, "Server %s (%s): no issues observed in the tests run.", s.Label, s.Host)
+		line(b, "")
+		return
+	}
+	line(b, "Issues needing attention on server %s (%s):", s.Label, s.Host)
+	for _, is := range s.Issues {
+		line(b, "    - %s", is)
+	}
+	line(b, "")
+}
+
+func agreementWord(agreement string) string {
+	switch agreement {
+	case "same":
+		return "same"
+	case "differs":
+		return "differs"
+	default:
+		return "can't compare"
+	}
+}
+
+func orServer(authority, label string) string {
+	if authority == "" {
+		return "server " + label
+	}
+	return authority
+}
+
+func orNotYet(label string) string {
+	if label == "" {
+		return "not characterized yet"
+	}
+	return label
 }
 
 // Text renders a human-readable report.

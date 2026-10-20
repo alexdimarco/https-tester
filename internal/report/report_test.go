@@ -57,6 +57,57 @@ func TestTextIncludesTierPlacement(t *testing.T) {
 	}
 }
 
+func secondRun() evidence.Run {
+	r := verifiedRun()
+	r.TargetScope = evidence.TargetScope{InputURL: "https://other.test/", Authority: "other.test:443", Host: "other.test"}
+	return r
+}
+
+func TestCompareTextIsSideBySideAndUngraded(t *testing.T) {
+	a := verifiedRun()
+	a.TargetScope.Host = "example.test"
+	out := CompareText(a, secondRun())
+	for _, want := range []string{"two-server comparison", "SIDE BY SIDE", "Server A", "Server B", "example.test", "other.test", "Bottom line:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("comparison text is missing %q:\n%s", want, out)
+		}
+	}
+	// It must not invent a grade or a winner.
+	for _, banned := range []string{"better", "winner", "grade A", "score"} {
+		if strings.Contains(strings.ToLower(out), strings.ToLower(banned)) {
+			t.Errorf("comparison text should not contain %q:\n%s", banned, out)
+		}
+	}
+}
+
+func TestCompareJSONDocumentHasComparisonAndBothSides(t *testing.T) {
+	b, err := CompareJSONDocument(verifiedRun(), secondRun())
+	if err != nil {
+		t.Fatalf("CompareJSONDocument: %v", err)
+	}
+	var doc struct {
+		Comparison struct {
+			Verdict string          `json:"verdict"`
+			Rows    json.RawMessage `json:"rows"`
+		} `json:"comparison"`
+		A json.RawMessage `json:"a"`
+		B json.RawMessage `json:"b"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("comparison document is not valid JSON: %v", err)
+	}
+	if doc.Comparison.Verdict == "" || len(doc.Comparison.Rows) == 0 {
+		t.Errorf("comparison document is missing the verdict or rows")
+	}
+	if len(doc.A) == 0 || len(doc.B) == 0 {
+		t.Errorf("comparison document is missing one of the per-server documents")
+	}
+	// The comparison must be serialized before the bulky per-server runs.
+	if strings.Index(string(b), "\"comparison\"") > strings.Index(string(b), "\"run\"") {
+		t.Errorf("comparison should be serialized before the runs")
+	}
+}
+
 func TestJSONDocumentLeadsWithSummary(t *testing.T) {
 	b, err := JSONDocument(verifiedRun())
 	if err != nil {

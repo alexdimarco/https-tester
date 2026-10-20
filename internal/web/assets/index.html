@@ -40,7 +40,15 @@
     <section aria-labelledby="stepHeading" id="runSection" hidden>
       <h2 id="stepHeading">2. Run the tests</h2>
       <p id="scopeSummary" class="scope"></p>
-      <p class="intro">Each button runs <strong>one</strong> test against the address above and adds to the picture below. Nothing is sent until you click. Start with the default; run the TLS-version tests to let the report place the server in a security tier. Green means the test worked; red means <em>that one offer</em> didn&rsquo;t complete — which is not proof the server has it turned off.</p>
+      <p class="intro">Each button runs <strong>one</strong> test against the address above and adds to the picture below. Nothing is sent until you click. In a hurry? <strong>Run all tests</strong> does the whole core suite in order. Green means the test worked; red means <em>that one offer</em> didn&rsquo;t complete — which is not proof the server has it turned off.</p>
+
+      <div class="test-group">
+        <h3>Run everything at once</h3>
+        <div class="test">
+          <button id="runAllBtn" type="button">Run all tests</button>
+          <p class="test-note">Runs the whole core suite in order — verified request, TLS 1.3, TLS 1.2, then the three key-exchange groups — and fills in the report below. Prefer to go step by step? Use the individual buttons underneath.</p>
+        </div>
+      </div>
 
       <div class="test-group">
         <h3>Does HTTPS work at all?</h3>
@@ -125,6 +133,38 @@
         <div id="assessRefs"></div>
       </details>
       <p id="assessDisclaimer" class="fineprint"></p>
+    </section>
+
+    <section aria-labelledby="compareHeading" id="compareSection" hidden>
+      <h2 id="compareHeading">Compare a second server</h2>
+      <p class="scope">Test a second server the same way and see the two side by side. Server A is the target at the top of the page; enter Server B here. This runs the full core suite against Server B on this machine, then lines the two up dimension by dimension. It is <strong>not a grade</strong> and never picks a winner — where a test ran on only one server, it says so rather than pretending they were compared.</p>
+
+      <label for="cmpAddr">Server B — HTTPS address</label>
+      <input id="cmpAddr" type="text" inputmode="url" spellcheck="false"
+             placeholder="https://other.example.test/" autocomplete="off">
+
+      <label for="cmpNote">Authorization note (optional)</label>
+      <input id="cmpNote" type="text" spellcheck="false"
+             placeholder="who authorized this and why">
+
+      <label class="checkbox">
+        <input id="cmpAllowPrivate" type="checkbox">
+        Server B is on a private or loopback address and I am authorized to test it.
+      </label>
+
+      <div class="actions">
+        <button id="cmpRunBtn" type="button">Authorize &amp; run all tests on Server B</button>
+      </div>
+      <p id="cmpStatus" role="status" aria-live="polite" class="status"></p>
+
+      <div id="cmpResults" hidden>
+        <div id="compareOut"></div>
+        <div class="actions">
+          <button id="cmpRefreshBtn" type="button" class="secondary">Refresh comparison</button>
+          <button id="cmpDlTxtBtn" type="button" class="secondary">Download comparison (.txt)</button>
+          <button id="cmpDlJsonBtn" type="button" class="secondary">Download comparison (.json)</button>
+        </div>
+      </div>
     </section>
 
     <section aria-labelledby="nginxHeading" id="nginxSection" hidden>

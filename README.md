@@ -4,7 +4,7 @@ A local-only, cross-platform tool for troubleshooting HTTPS connections — one
 test at a time, with every result labelled by what it does and does **not**
 prove.
 
-> **Status: v0.1.0 (early 0.x).** The Go probe engine works and is tested on
+> **Status: v0.3.0 (early 0.x).** The Go probe engine works and is tested on
 > Linux, macOS, and Windows in CI. As an early 0.x release, interfaces may still
 > change. Binaries are **unsigned** (your OS will warn on first run), there is no
 > independent security review of the local API yet, and legacy TLS 1.0/1.1 and
@@ -55,6 +55,11 @@ HTTPS connection was obtained, and which security tier the observed posture
 matches (widest compatibility, good security, or highest security) — then show
 how it matches each tier and what was not tested. No letter grade or score is
 produced, and anything untested is reported as untested, never as safe or unsafe.
+
+You can run the whole core suite against a target in one click ("Run all tests"),
+and compare two servers side by side — dimension by dimension, marking where they
+differ and where a test ran on only one of them. The comparison is not a grade
+and never ranks one server over the other.
 
 ## Design principles
 
