@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 — 2026-10-20
+
+Reports now lead with the answer: every report — text, JSON, and the web UI —
+opens with a plain-language executive summary and places the server on a
+compatibility/security tier, and the "Run tests" UI explains each test in plain
+words. Still an early 0.x release; interfaces and behavior may still change.
 
 ### Added
 - Executive summary leading every report — the text report, the JSON export, and
