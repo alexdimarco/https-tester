@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Executive summary leading every report — the text report, the JSON export, and
+  the web UI's "Where this server lands" panel: the bottom line, whether a
+  verified HTTPS connection was obtained, the security tier the observed posture
+  is consistent with (its "standing"), the issues actually seen, and items worth
+  watching. A scoped summary of what was observed — never a grade, a score, or a
+  pass/fail verdict.
+
+### Changed
+- Compatibility & security tier placement is now shown in the text report and the
+  JSON export, not only in the web UI as before: the observed TLS-version posture
+  against the Widest-compatibility (legacy, below baseline), Good security
+  (Intermediate), and Highest security (Modern) targets, with how the run matches
+  and what is missing or untested for each. (The three-target comparison itself
+  shipped in v0.1.0; this broadens where it appears.)
+- JSON export is now a self-contained document — `summary`, `run`, `assessment`,
+  and `profiles` — instead of the bare evidence run. The raw run moves under the
+  `run` key, so a tool that parsed the previous export must now read `run`.
+- Web UI report controls: the on-page "Export JSON" preview is replaced by
+  "Download report (.txt)" and "Download data (.json)", which save a local file
+  named `httpsdiag-<host>-<timestamp>`; "Preview report" still renders the text
+  report in-page. Downloads are produced locally and never leave the loopback
+  server.
+- Clearer "Run tests" UI: each test is grouped under the plain question it
+  answers — "Does HTTPS work at all?", "Which TLS versions does the server
+  accept?", "Which key-exchange methods work?" (advanced), "Compare a real
+  installed client" (advanced), and "Report" — each with a one-line caption of
+  what it checks and what a pass or fail means, instead of bare buttons. Results
+  now lead with the tier placement.
+
 ## v0.1.0 — 2026-10-18
 
 First official release (0.x — early; interfaces and behavior may still change).

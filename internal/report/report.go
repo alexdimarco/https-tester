@@ -15,9 +15,26 @@ import (
 	"github.com/alexdimarco/https-tester/internal/evidence"
 )
 
-// JSON renders the run as indented JSON (the structured, second-layer view).
-func JSON(run evidence.Run) ([]byte, error) {
-	return json.MarshalIndent(run, "", "  ")
+// Document is the self-contained JSON export: the executive summary first, then
+// the full evidence run, the protocol assessment, and the profile comparison.
+// It leads with the summary for the same reason the text report does.
+type Document struct {
+	Summary    assess.Summary         `json:"summary"`
+	Run        evidence.Run           `json:"run"`
+	Assessment assess.Assessment      `json:"assessment"`
+	Profiles   []assess.ProfileTarget `json:"profiles"`
+}
+
+// JSONDocument renders the complete export document (summary + run + assessment
+// + profiles) as indented JSON.
+func JSONDocument(run evidence.Run) ([]byte, error) {
+	doc := Document{
+		Summary:    assess.Summarize(run),
+		Run:        run,
+		Assessment: assess.Build(run),
+		Profiles:   assess.CompareProfiles(run),
+	}
+	return json.MarshalIndent(doc, "", "  ")
 }
 
 // Text renders a human-readable report.
@@ -33,6 +50,13 @@ func Text(run evidence.Run) string {
 	line(&b, "Trust used:         %s", run.TrustMode)
 	line(&b, "What this is:       findings about what THIS client observed. It does not certify the server.")
 	line(&b, "")
+
+	// --- executive summary (the short, lead-with-the-answer view) ---
+	sum := assess.Summarize(run)
+	writeSummary(&b, sum)
+
+	// --- where this lands: the security tier, with how it matches ---
+	writeTierPlacement(&b, sum, assess.CompareProfiles(run))
 
 	// --- what we found, in plain words ---
 	line(&b, "WHAT WE FOUND")
@@ -260,6 +284,120 @@ func plainError(normalized string) string {
 		return "the network path was unreachable"
 	default:
 		return ""
+	}
+}
+
+// writeSummary renders the short executive summary at the top of the report.
+func writeSummary(b *bytes.Buffer, s assess.Summary) {
+	line(b, "EXECUTIVE SUMMARY")
+	line(b, "%s", strings.Repeat("-", 52))
+	line(b, "  Bottom line:  %s", s.Headline)
+	line(b, "  Connection:   %s — %s", connWord(s.Connection), s.ConnectionNote)
+	line(b, "  Standing:     %s", s.StandingLabel)
+	line(b, "                %s", s.StandingNote)
+	if len(s.Issues) == 0 {
+		line(b, "  Issues:       none observed in the tests run")
+	} else {
+		line(b, "  Issues needing attention:")
+		for _, is := range s.Issues {
+			line(b, "    - %s", is)
+		}
+	}
+	if len(s.Watch) > 0 {
+		line(b, "  Also worth noting:")
+		for _, w := range s.Watch {
+			line(b, "    - %s", w)
+		}
+	}
+	line(b, "  Tests run: %d    Security knowledge as of: %s", s.TestsRun, s.KnowledgeAsOf)
+	line(b, "  %s", s.Caveat)
+	line(b, "")
+}
+
+// writeTierPlacement ranks the observed posture into one of the named tiers and
+// shows, for each tier, how the run matched and what is still missing. This is
+// the text-report counterpart of the on-screen "Where this server lands" view.
+func writeTierPlacement(b *bytes.Buffer, s assess.Summary, profiles []assess.ProfileTarget) {
+	line(b, "WHERE THIS LANDS (compatibility & security tier)")
+	line(b, "%s", strings.Repeat("-", 52))
+	line(b, "  Observed tier:  %s", s.StandingLabel)
+	if s.StandingNote != "" {
+		line(b, "                  %s", s.StandingNote)
+	}
+	line(b, "")
+	line(b, "  Measured against the named targets (TLS-version posture only;")
+	line(b, "  cipher strength and legacy TLS 1.0/1.1 are not fully testable here):")
+	for _, p := range profiles {
+		mark := ""
+		if p.Standing == s.Standing && s.Standing != "below-baseline" {
+			mark = "   <-- server lands here"
+		}
+		var matched, missing []assess.ProfileCheck
+		for _, c := range p.Checks {
+			if c.Status == "met" {
+				matched = append(matched, c)
+			} else {
+				missing = append(missing, c)
+			}
+		}
+		line(b, "")
+		line(b, "  [%s] %s%s", tierWord(p.Standing), p.Name, mark)
+		line(b, "      %s", p.Summary)
+		if len(matched) > 0 {
+			line(b, "      How it matches:")
+			for _, c := range matched {
+				line(b, "        - %s: %s", c.Expectation, checkWord(c.Status))
+			}
+		}
+		if len(missing) > 0 {
+			line(b, "      What's missing / to confirm:")
+			for _, c := range missing {
+				line(b, "        - %s: %s — %s", c.Expectation, checkWord(c.Status), c.Detail)
+			}
+		}
+		line(b, "      Source: %s", p.Source)
+	}
+	line(b, "")
+}
+
+// tierWord is the short label for a tier's standing in the text report.
+func tierWord(standing string) string {
+	switch standing {
+	case "recommended":
+		return "Recommended"
+	case "high-security":
+		return "Highest security"
+	case "below-baseline":
+		return "Below baseline"
+	default:
+		return standing
+	}
+}
+
+// checkWord is the plain-language word for a per-tier check result.
+func checkWord(status string) string {
+	switch status {
+	case "met":
+		return "met"
+	case "unmet":
+		return "not met in this run"
+	case "not_tested":
+		return "not tested yet"
+	case "consider":
+		return "policy choice"
+	default:
+		return status
+	}
+}
+
+func connWord(state string) string {
+	switch state {
+	case "verified":
+		return "verified"
+	case "failed":
+		return "not completed"
+	default:
+		return "not tested yet"
 	}
 }
 

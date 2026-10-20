@@ -1,11 +1,16 @@
 # Contributing to HTTPS Diagnostic Workbench
 
-Thanks for your interest. This project is **design-stage** — there is no
-application code yet, only the specification in
+Thanks for your interest. The HTTPS Diagnostic Workbench is a working,
+local-only tool: a Go program under [`cmd/`](cmd/) with a loopback web UI that
+tests one HTTPS endpoint at a time, built from the specification in
 [`docs/HTTPS_Diagnostic_Workbench_Design.md`](docs/HTTPS_Diagnostic_Workbench_Design.md).
-The most valuable contributions right now are careful reviews of that design:
-gaps in diagnostic coverage, places where a conclusion outruns its evidence, or
-security and privacy concerns.
+See [`README.md`](README.md) for what it does and how to run it, and
+[`CHANGELOG.md`](CHANGELOG.md) for recent changes.
+
+Valuable contributions include bug reports backed by reproducible evidence, new
+or sharpened diagnostics, test coverage, and careful reviews of the design and
+its guidance — especially gaps in diagnostic coverage, places where a conclusion
+outruns its evidence, or security and privacy concerns.
 
 ## Ground rules from the design
 
@@ -14,6 +19,11 @@ standard the design sets:
 
 - **Observation is not conclusion.** A failure at one layer is not proof of a
   failure at another. Keep claims scoped to what was actually observed.
+- **Summaries and standings report posture, not a grade.** The executive
+  summary, its standing, and the compatibility/security-tier placement describe
+  how the observed posture matches a named target and cite their sources. They
+  must never present an overall score or letter grade, or treat a single rejected
+  offer as proof that a setting is disabled.
 - **No auto-remediation.** The tool never changes a remote server. Features
   that would "fix" a target are out of scope.
 - **Local-only.** No telemetry, cloud analysis, or external AI in the core
@@ -22,10 +32,10 @@ standard the design sets:
   internal hostnames into issues, pull requests, or test fixtures. Use
   placeholders.
 
-## Development (once code lands)
+## Development
 
-Prerequisites: a recent **Go** toolchain (the design pins Go 1.27.2 as the
-baseline; check `go.mod` once it exists).
+Prerequisites: a recent **Go** toolchain. The baseline is pinned in
+[`go.mod`](go.mod) (currently Go 1.27.2).
 
 ```sh
 go build ./...

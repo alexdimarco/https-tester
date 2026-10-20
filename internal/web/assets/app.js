@@ -3,6 +3,7 @@
 // Session capability, held only in page memory. Never written to storage.
 let capability = "";
 let runID = "";
+let lastRun = null; // the most recent run snapshot, for naming downloads
 
 const $ = (id) => document.getElementById(id);
 
@@ -71,6 +72,8 @@ async function loadCapabilities() {
 function renderClientButtons(adapters) {
   const box = $("clientActions");
   box.replaceChildren();
+  const group = $("clientGroup");
+  if (group) group.hidden = (adapters || []).length === 0;
   adapters.forEach((t) => {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -101,6 +104,7 @@ async function startRun() {
       ((s.selected_addresses || []).join(", ") || "(none resolved)") +
       " · trust " + data.trust_mode;
     $("runSection").hidden = false;
+    $("summarySection").hidden = true;
     $("resultSection").hidden = false;
     $("assessSection").hidden = true;
     $("profSection").hidden = true;
@@ -120,6 +124,7 @@ async function runProfile(profile, btn) {
   try {
     const data = await api("POST", "/api/runs/" + runID + "/next", { profile });
     renderRun(data);
+    await loadSummary();
     await loadAssessment();
     await loadProfiles();
     setStatus("Test complete (" + (profile || "default") + ").");
@@ -159,6 +164,7 @@ const ERROR_PLAIN = {
 const friendlyGroup = (g) => GROUP_NAME[g] || (g === "unknown" ? "" : g || "");
 
 function renderRun(run) {
+  lastRun = run;
   const findBox = $("findings");
   findBox.replaceChildren();
   const claims = run.claims || [];
@@ -232,6 +238,105 @@ function renderObservation(o) {
   return box;
 }
 
+async function loadSummary() {
+  if (!runID) return;
+  try {
+    const s = await api("GET", "/api/runs/" + runID + "/summary");
+    renderSummary(s);
+  } catch (e) {
+    // non-fatal: the summary is a convenience view
+  }
+}
+
+// The badge class and word mirror the standing/issues, so the top-of-page
+// summary reads the same as the exported report.
+const STANDING_WORD = {
+  "high-security": "High security",
+  recommended: "Healthy",
+  "below-baseline": "Below baseline",
+  not_tested: "Not tested",
+};
+function summaryBadge(s) {
+  if (s.issues && s.issues.length) return { cls: "fail", word: "Action needed" };
+  if (s.standing === "high-security" || s.standing === "recommended") return { cls: "pass", word: STANDING_WORD[s.standing] };
+  // Amber, not red: below-baseline-without-issues is "not a goal", not an error —
+  // matching the ladder rung and the profile cards for the same state.
+  if (s.standing === "below-baseline") return { cls: "consider", word: "Below baseline" };
+  return { cls: "note", word: "Not tested" };
+}
+function connWordJS(state) {
+  return state === "verified" ? "verified" : state === "failed" ? "not completed" : "not tested yet";
+}
+
+// The three named tiers, strongest first. The run's standing lights up one rung
+// so the headline reads the same as the per-tier detail below it.
+const TIERS = [
+  { code: "high-security",  cls: "tier-high",  name: "Highest security", sub: "Modern — TLS 1.3 only, for high-value traffic" },
+  { code: "recommended",    cls: "tier-good",  name: "Good security",    sub: "Intermediate — TLS 1.2 + 1.3, broad compatibility (recommended)" },
+  { code: "below-baseline", cls: "tier-below", name: "Below the baseline", sub: "Widest-compatibility / legacy, a failed connection, or an observed issue" },
+];
+// Shared with the profile cards so the matched tier is highlighted there too.
+let currentStanding = "not_tested";
+
+function renderLadder(standing) {
+  const wrap = el("div", "ladder");
+  TIERS.forEach((t) => {
+    const here = t.code === standing;
+    const rung = el("div", "rung " + t.cls + (here ? " current" : ""));
+    rung.append(el("span", "tier-name", t.name));
+    rung.append(el("span", "tier-sub", t.sub));
+    if (here) rung.append(el("span", "tier-here", "◄ observed here"));
+    wrap.append(rung);
+  });
+  return wrap;
+}
+
+function renderSummary(s) {
+  $("summarySection").hidden = false;
+  currentStanding = s.standing || "not_tested";
+  const box = $("summaryPanel");
+  box.replaceChildren();
+
+  const card = el("div", "finding");
+  const b = summaryBadge(s);
+  const head = el("div", "finding-head");
+  head.append(el("span", "badge " + b.cls, b.word));
+  head.append(el("span", "statement", s.headline || ""));
+  card.append(head);
+
+  // Tier placement: where the observed posture lands, strongest first.
+  card.append(renderLadder(s.standing));
+  if (s.standing === "not_tested") {
+    card.append(el("p", "scope", "Run the default verified request to place the server on a tier."));
+  }
+
+  const dl = document.createElement("dl");
+  const rows = [];
+  if (s.connection_note) rows.push(["Connection", connWordJS(s.connection) + " — " + s.connection_note]);
+  if (s.standing_label) rows.push(["Tier", s.standing_label]);
+  if (s.standing_note) rows.push(["What it means / next", s.standing_note]);
+  rows.forEach(([k, v]) => dl.append(elDT(k), elDD(v)));
+  if (dl.childNodes.length) card.append(dl);
+
+  if (s.issues && s.issues.length) {
+    card.append(el("div", "assess-head", "Errors & concerns"));
+    s.issues.forEach((i) => card.append(el("div", "assess-gap", "• " + i)));
+  } else {
+    card.append(el("p", "scope", "No errors or concerns were observed in the tests you ran."));
+  }
+
+  if (s.watch && s.watch.length) {
+    const d = document.createElement("details");
+    d.append(el("summary", "", "Also worth noting (" + s.watch.length + ")"));
+    s.watch.forEach((w) => d.append(el("div", "assess-gap", "• " + w)));
+    card.append(d);
+  }
+
+  card.append(el("p", "fineprint",
+    "Tests run: " + (s.tests_run || 0) + " · security knowledge as of " + (s.knowledge_as_of || "unknown") + ". " + (s.caveat || "")));
+  box.append(card);
+}
+
 async function loadAssessment() {
   if (!runID) return;
   try {
@@ -294,26 +399,53 @@ async function loadProfiles() {
   }
 }
 
-const STANDING_BADGE = { recommended: "info", "high-security": "info", "below-baseline": "attention" };
-const CHECK_BADGE = { met: "info", unmet: "attention", not_tested: "note", consider: "consider" };
+// Border colour and short label per tier. Below-baseline uses amber, not red:
+// the legacy tier is "not a goal", not an error in the server.
+const STANDING_BORDER = { recommended: "info", "high-security": "info", "below-baseline": "consider" };
+const STANDING_SHORT = { recommended: "Recommended", "high-security": "Highest security", "below-baseline": "Below baseline" };
+// Plain-language word and badge colour for each per-tier check result.
+const CHECK_PLAIN = {
+  met:        { word: "Met", cls: "info" },
+  unmet:      { word: "Not met in this run", cls: "attention" },
+  not_tested: { word: "Not tested yet", cls: "note" },
+  consider:   { word: "Policy choice", cls: "consider" },
+};
+
+function checkRow(c) {
+  const plain = CHECK_PLAIN[c.status] || { word: c.status || "", cls: "note" };
+  const row = el("div", "assess-gap");
+  row.append(el("span", "badge " + plain.cls, plain.word));
+  row.append(document.createTextNode(" " + c.expectation + (c.detail ? " — " + c.detail : "")));
+  return row;
+}
 
 function renderProfiles(profiles) {
   $("profSection").hidden = false;
   const box = $("profiles");
   box.replaceChildren();
   profiles.forEach((p) => {
-    const card = el("div", "assess-prop sev-" + (STANDING_BADGE[p.standing] || "note"));
+    // Mark the tier the observed posture matches. Below-baseline is shown on the
+    // ladder instead, so the (always below-baseline) legacy card is not flagged.
+    const isMatch = !!p.standing && p.standing === currentStanding && currentStanding !== "below-baseline";
+    const card = el("div", "assess-prop sev-" + (STANDING_BORDER[p.standing] || "note") + (isMatch ? " match" : ""));
     const head = el("div", "assess-head");
-    head.append(el("span", "badge " + (STANDING_BADGE[p.standing] || "note"), p.standing || ""));
+    head.append(el("span", "badge " + (STANDING_BORDER[p.standing] || "note"), STANDING_SHORT[p.standing] || p.standing || ""));
     head.append(el("span", "statement", p.name || ""));
+    if (isMatch) head.append(el("span", "match-tag", "◄ server lands here"));
     card.append(head);
     card.append(el("div", "assess-note", p.summary || ""));
-    (p.checks || []).forEach((c) => {
-      const row = el("div", "assess-gap");
-      row.append(el("span", "badge " + (CHECK_BADGE[c.status] || "note"), c.status || ""));
-      row.append(document.createTextNode(" " + c.expectation + (c.detail ? " — " + c.detail : "")));
-      card.append(row);
-    });
+
+    const checks = p.checks || [];
+    const matches = checks.filter((c) => c.status === "met");
+    const missing = checks.filter((c) => c.status !== "met");
+    if (matches.length) {
+      card.append(el("div", "assess-subhead", "How it matches"));
+      matches.forEach((c) => card.append(checkRow(c)));
+    }
+    if (missing.length) {
+      card.append(el("div", "assess-subhead", "What's missing / to confirm"));
+      missing.forEach((c) => card.append(checkRow(c)));
+    }
     card.append(el("div", "fineprint", "Source: " + (p.source || "")));
     box.append(card);
   });
@@ -371,6 +503,54 @@ async function preview(format) {
   }
 }
 
+// downloadReport fetches the rendered export and saves it as a file on this
+// machine. The content is produced locally and never leaves the loopback
+// server. If the browser blocks the save, it falls back to an on-page preview
+// the operator can copy.
+async function downloadReport(format) {
+  if (!runID) { setStatus("Start a test first.", true); return; }
+  setStatus("Preparing download…");
+  try {
+    const data = await api("POST", "/api/runs/" + runID + "/export", { format });
+    const isJson = format === "json";
+    const name = reportFilename(isJson ? "json" : "txt");
+    saveTextFile(data.content || "", name, isJson ? "application/json" : "text/plain");
+    setStatus("Downloaded " + name + ". Results stay on this machine; review before sharing.");
+  } catch (e) {
+    setStatus("Could not save the file (" + e.message + "). Showing a preview to copy instead.", true);
+    preview(format);
+  }
+}
+
+function reportFilename(ext) {
+  let host = "report";
+  if (lastRun && lastRun.target_scope && lastRun.target_scope.host) {
+    host = lastRun.target_scope.host;
+  }
+  host = host.replace(/[^A-Za-z0-9._-]/g, "_");
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" +
+    p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  return "httpsdiag-" + host + "-" + stamp + "." + ext;
+}
+
+function saveTextFile(content, filename, type) {
+  const blob = new Blob([content], { type: type + ";charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
 async function shutdown() {
   setStatus("Shutting down…");
   try { await api("POST", "/api/shutdown", {}); } catch (_e) {}
@@ -393,7 +573,8 @@ async function main() {
     btn.addEventListener("click", () => runProfile(btn.dataset.profile, btn));
   });
   $("reportBtn").addEventListener("click", () => preview("text"));
-  $("jsonBtn").addEventListener("click", () => preview("json"));
+  $("dlTxtBtn").addEventListener("click", () => downloadReport("text"));
+  $("dlJsonBtn").addEventListener("click", () => downloadReport("json"));
   $("nginxReviewBtn").addEventListener("click", reviewNginx);
   $("shutdownBtn").addEventListener("click", shutdown);
 

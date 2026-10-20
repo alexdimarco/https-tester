@@ -431,6 +431,16 @@ func (s *Session) Assess(runID string) (assess.Assessment, error) {
 	return assess.Build(run.Snapshot()), nil
 }
 
+// Summarize returns the short executive summary for a run (bottom line,
+// connection state, standing, and observed issues).
+func (s *Session) Summarize(runID string) (assess.Summary, error) {
+	run, err := s.lookup(runID)
+	if err != nil {
+		return assess.Summary{}, err
+	}
+	return assess.Summarize(run.Snapshot()), nil
+}
+
 // Profiles compares the run's observed posture against the legacy /
 // Intermediate / Modern targets.
 func (s *Session) Profiles(runID string) ([]assess.ProfileTarget, error) {
@@ -459,7 +469,7 @@ func (s *Session) Export(runID, format string) (string, error) {
 	snap := run.Snapshot()
 	switch format {
 	case "json":
-		b, jerr := report.JSON(snap)
+		b, jerr := report.JSONDocument(snap)
 		if jerr != nil {
 			return "", jerr
 		}

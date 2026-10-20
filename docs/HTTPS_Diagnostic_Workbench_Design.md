@@ -4,6 +4,7 @@
 **Worked on:** 18 October 2026. Clock read at 09:48, Toronto offset UTC-04:00.
 **Register:** implementation design draft, not a completed application or a verified diagnosis of the earlier server incident.
 **Design version:** 0.1.
+**Revised:** 20 October 2026, to record what the implemented build added to the design — an executive summary leading the report, the compatibility/security tier placement in the text report and JSON export, and a clearer question-grouped test UI (see §3.2 and §10.1). The 18 October design and its register stand; this line records the revision, not a silent rewrite.
 **Owner of implementation decisions:** Alex and the implementing administrator/developer.
 
 The proposed product is one executable for each supported operating-system/processor combination, with an embedded browser interface. An administrator enters an HTTPS address, authorizes a bounded set of connection attempts, and works through the investigation one test at a time. The application explains what it observed, what that observation does not establish, and the smallest next test that could distinguish competing explanations.
@@ -158,6 +159,8 @@ Use readable text, visible keyboard focus, clear headings, and status words. Do 
 ### 3.2 Workflow behavior
 
 The default is genuinely one test at a time. A completed test does not silently trigger its successor. An optional "Run the approved basic sequence" control shows the plan and connection budget first. DNS lookup is an explicit first network action, covered by the user's initial authorization.
+
+The Run-tests area presents each test under the plain question it answers — "Does HTTPS work at all?", "Which TLS versions does the server accept?", "Which key-exchange methods work?" (advanced), "Compare a real installed client" (advanced), and "Report" — each with a one-line caption of what it checks and what a pass or fail means, rather than unlabelled buttons. This is presentation only: the default is still one test at a time, and completing one does not trigger the next. Result panels lead with the "Where this server lands" tier placement, then the per-test observed result, what it means, and what it does not establish.
 
 Editing the hostname, port, SNI, path, trust mode, selected address, proxy, or client profile creates a new comparison branch. The previous results remain visible. A deliberate retest creates a new observation; it does not overwrite a failure with a pass.
 
@@ -549,8 +552,9 @@ The generated report contains:
 5. Append-only correction history and explicit changes between runs.
 6. Redaction summary, sharing scope, and source status.
 7. Method counters, clearly distinguished between software-recorded facts and operator/model self-report.
+8. A leading plain-language executive summary (bottom line, connection state, security-tier standing, and issues observed) and a compatibility/security tier placement: the observed TLS-version posture against the Widest-compatibility, Intermediate, and Modern targets, stated as "consistent with X, as far as tested," with how it matches and what was not tested. It is a scoped summary, not a grade or score.
 
-Do not issue an A-F security grade. Show connection compatibility, certificate/trust findings, observed security properties, and untested coverage separately. A cryptographic handshake, application availability, and compliance evidence are different outcomes.
+Do not issue an A-F security grade. Show connection compatibility, certificate/trust findings, observed security properties, and untested coverage separately. A cryptographic handshake, application availability, and compliance evidence are different outcomes. Connection compatibility is surfaced as the "WHERE THIS LANDS" tier placement (in the text report and the JSON export): it names the configuration target the run is consistent with — a standing, as far as tested — and is explicitly not a grade or aggregate score.
 
 ### 10.2 Application of the supplied method
 

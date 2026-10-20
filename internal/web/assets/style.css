@@ -69,8 +69,45 @@ input[type=text], textarea {
 textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; resize: vertical; }
 
 .scope { color: var(--muted); font-size: 0.9rem; }
+.intro { font-size: 0.95rem; margin: 4px 0 4px; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+
+/* One test = a button plus a plain-language caption of what it checks. */
+.test-group { margin-top: 18px; padding-top: 6px; border-top: 1px solid var(--line); }
+.test-group:first-of-type { border-top: 0; }
+.test-group h3 { margin: 6px 0 6px; }
+.test { display: grid; grid-template-columns: minmax(0, max-content) 1fr; gap: 6px 14px; align-items: start; margin: 10px 0; }
+.test > button { white-space: nowrap; }
+.test-note { margin: 2px 0; color: var(--muted); font-size: 0.9rem; align-self: center; }
+.tag {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 1px 7px;
+  vertical-align: middle; margin-left: 4px;
+}
+@media (max-width: 520px) {
+  .test { grid-template-columns: 1fr; gap: 2px; }
+  .test > button { width: 100%; }
+}
+
+/* Tier ladder: the server's standing shown against the three named targets. */
+.ladder { margin: 12px 0; display: flex; flex-direction: column; gap: 0; }
+.rung {
+  display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--line); background: var(--bg);
+  opacity: 0.55;
+}
+.rung:first-child { border-radius: 8px 8px 0 0; }
+.rung:last-child { border-radius: 0 0 8px 8px; }
+.rung + .rung { border-top: 0; }
+.rung .tier-name { font-weight: 700; }
+.rung .tier-sub { color: var(--muted); font-size: 0.85rem; }
+.rung .tier-here { margin-left: auto; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.rung.current { opacity: 1; }
+.rung.current.tier-high { border-left: 5px solid var(--ok); }
+.rung.current.tier-good { border-left: 5px solid var(--ok); }
+.rung.current.tier-below { border-left: 5px solid var(--warn); }
+.rung.current .tier-here { color: var(--accent); }
 
 button {
   font: inherit;
@@ -136,6 +173,9 @@ button:focus-visible, input:focus-visible, pre:focus-visible {
 .assess-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .assess-note { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
 .assess-gap { font-size: 0.9rem; margin: 4px 0; }
+.assess-subhead { font-weight: 700; font-size: 0.82rem; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); margin: 10px 0 2px; }
+.match-tag { margin-left: auto; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.assess-prop.match { background: color-mix(in srgb, var(--accent) 8%, var(--bg)); border-left-width: 5px; }
 .finding dl { margin: 8px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; }
 .finding dt { color: var(--muted); }
 .finding dd { margin: 0; word-break: break-word; }

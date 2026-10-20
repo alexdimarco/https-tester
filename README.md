@@ -50,6 +50,12 @@ For each observation the tool explains:
 It does not administer the remote server, change its configuration, upload
 results, or require any AI or cloud service.
 
+Reports lead with a plain-language summary — the bottom line, whether a verified
+HTTPS connection was obtained, and which security tier the observed posture
+matches (widest compatibility, good security, or highest security) — then show
+how it matches each tier and what was not tested. No letter grade or score is
+produced, and anything untested is reported as untested, never as safe or unsafe.
+
 ## Design principles
 
 - **Local-only.** The UI, test engine, evidence store, and reports all run on
